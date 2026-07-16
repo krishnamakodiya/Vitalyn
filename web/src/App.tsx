@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { api, categoryLabel, type AiAnalysis, type EventSource, type MemoryCategory, type TimelineEvent } from './lib/api';
+import { api, categoryLabel, type AiAnalysis, type EventSource, type HealthRecord, type MemoryCategory, type TimelineEvent } from './lib/api';
 import { clearSession, loadSession, saveSession, type Session } from './lib/session';
 import {
   assistantReplies,
@@ -31,6 +31,8 @@ type View =
   | 'insights'
   | 'settings';
 
+type RecordType = 'medications' | 'reports' | 'prescriptions' | 'wearables' | 'reminders' | 'insights';
+
 type AuthMode = 'login' | 'register';
 
 const navItems: Array<{ id: View; label: string; icon: string }> = [
@@ -56,6 +58,7 @@ export function App() {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [view, setView] = useState<View>('dashboard');
   const [events, setEvents] = useState<TimelineEvent[]>(() => demoTimeline());
+  const [records, setRecords] = useState<Record<RecordType, HealthRecord[]>>(() => initialRecords());
   const [chat, setChat] = useState<ChatMessage[]>(initialChat);
   const [error, setError] = useState('');
   const [darkMode, setDarkMode] = useState(false);
@@ -73,6 +76,17 @@ export function App() {
     try {
       const remoteEvents = await api.listTimeline(token);
       if (remoteEvents.length > 0) setEvents(mergeEvents(remoteEvents, demoTimeline()));
+      const recordTypes: RecordType[] = ['medications', 'reports', 'prescriptions', 'wearables', 'reminders', 'insights'];
+      const recordEntries = await Promise.all(
+        recordTypes.map(async (recordType) => [recordType, await api.listRecords(token, recordType)] as const),
+      );
+      setRecords((current) => {
+        const next = { ...current };
+        for (const [recordType, items] of recordEntries) {
+          if (items.length > 0) next[recordType] = items;
+        }
+        return next;
+      });
       setError('');
     } catch {
       setError('Offline demo mode is active. Prototype data is available while the backend reconnects.');
@@ -160,6 +174,34 @@ export function App() {
     }
   }
 
+  async function addRecord(recordType: RecordType, title: string, details: string) {
+    const localRecord: HealthRecord = {
+      id: crypto.randomUUID(),
+      record_type: recordType,
+      title,
+      details,
+      metadata: {},
+      occurred_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+      archived_at: null,
+    };
+    setRecords((current) => ({
+      ...current,
+      [recordType]: [localRecord, ...current[recordType]],
+    }));
+    if (session?.accessToken && session.accessToken !== 'offline-demo-token') {
+      try {
+        const saved = await api.createRecord(session.accessToken, recordType, { title, details });
+        setRecords((current) => ({
+          ...current,
+          [recordType]: [saved, ...current[recordType].filter((item) => item.id !== localRecord.id)],
+        }));
+      } catch {
+        setError('Saved locally. Backend sync for this record will need retry.');
+      }
+    }
+  }
+
   function sendChat(message: string) {
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const reply = assistantReplies[chat.length % assistantReplies.length];
@@ -207,18 +249,20 @@ export function App() {
           />
         )}
         {view === 'timeline' && <TimelineView events={events} />}
-        {view === 'medications' && <MedicationsView />}
-        {view === 'reports' && <ReportsView />}
+        {view === 'medications' && <MedicationsView records={records.medications} onAdd={addRecord} />}
+        {view === 'reports' && <ReportsView records={records.reports} onAdd={addRecord} />}
         {view === 'prescriptions' && (
           <PrescriptionsView
             token={session.accessToken}
+            records={records.prescriptions}
+            onAdd={addRecord}
             onEventCreated={(event) => setEvents((current) => [event, ...current])}
           />
         )}
-        {view === 'wearables' && <WearablesView />}
+        {view === 'wearables' && <WearablesView records={records.wearables} onAdd={addRecord} />}
         {view === 'doctor' && <DoctorSummaryView events={events} />}
-        {view === 'reminders' && <RemindersView />}
-        {view === 'insights' && <InsightsView />}
+        {view === 'reminders' && <RemindersView records={records.reminders} onAdd={addRecord} />}
+        {view === 'insights' && <InsightsView records={records.insights} onAdd={addRecord} />}
         {view === 'settings' && <SettingsView session={session} />}
       </section>
     </main>
@@ -702,19 +746,23 @@ function TimelineEventRow({ event }: { event: TimelineEvent }) {
   );
 }
 
-function MedicationsView() {
-  return <CollectionView eyebrow="Medications" title="Medication memory" items={medications.map((item) => ({ title: item.name, detail: `${item.dose} • ${item.schedule}`, meta: item.status }))} />;
+function MedicationsView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
+  return <CollectionView eyebrow="Medications" title="Medication memory" recordType="medications" records={records} onAdd={onAdd} />;
 }
 
-function ReportsView() {
-  return <CollectionView eyebrow="Reports" title="Medical reports" items={reports.map((item) => ({ title: item.title, detail: item.summary, meta: `${item.type} • ${item.date}` }))} />;
+function ReportsView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
+  return <CollectionView eyebrow="Reports" title="Medical reports" recordType="reports" records={records} onAdd={onAdd} />;
 }
 
 function PrescriptionsView({
   token,
+  records,
+  onAdd,
   onEventCreated,
 }: {
   token: string;
+  records: HealthRecord[];
+  onAdd: (recordType: RecordType, title: string, details: string) => void;
   onEventCreated: (event: TimelineEvent) => void;
 }) {
   const [imageName, setImageName] = useState('');
@@ -774,21 +822,21 @@ function PrescriptionsView({
         {status && <div className="notice">{status}</div>}
         {analysis && <AnalysisCard analysis={analysis} />}
       </article>
-      <CollectionView eyebrow="Medication Understanding" title="Saved prescription examples" items={prescriptions.map((item) => ({ title: item.medicine, detail: item.instruction, meta: item.extractedFrom }))} />
+      <CollectionView eyebrow="Medication Understanding" title="Saved prescription records" recordType="prescriptions" records={records} onAdd={onAdd} />
     </section>
   );
 }
 
-function WearablesView() {
-  return <CollectionView eyebrow="Wearables" title="Connected health signals" items={wearableStats.map((item) => ({ title: item.label, detail: item.value, meta: 'Synced sample data' }))} />;
+function WearablesView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
+  return <CollectionView eyebrow="Wearables" title="Connected health signals" recordType="wearables" records={records} onAdd={onAdd} />;
 }
 
-function RemindersView() {
-  return <CollectionView eyebrow="Reminders" title="Care tasks" items={reminders.map((item) => ({ title: item.title, detail: item.detail, meta: `${item.time} • ${item.done ? 'Done' : 'Upcoming'}` }))} />;
+function RemindersView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
+  return <CollectionView eyebrow="Reminders" title="Care tasks" recordType="reminders" records={records} onAdd={onAdd} />;
 }
 
-function InsightsView() {
-  return <CollectionView eyebrow="Insights" title="Weekly and monthly patterns" items={insights.map((item, index) => ({ title: `Insight ${index + 1}`, detail: item, meta: 'Non-diagnostic pattern' }))} />;
+function InsightsView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
+  return <CollectionView eyebrow="Insights" title="Weekly and monthly patterns" recordType="insights" records={records} onAdd={onAdd} />;
 }
 
 function DoctorSummaryView({ events }: { events: TimelineEvent[] }) {
@@ -821,12 +869,39 @@ function SettingsView({ session }: { session: Session }) {
   );
 }
 
-function CollectionView({ eyebrow, title, items }: { eyebrow: string; title: string; items: Array<{ title: string; detail: string; meta: string }> }) {
+function CollectionView({
+  eyebrow,
+  title,
+  recordType,
+  records,
+  onAdd,
+}: {
+  eyebrow: string;
+  title: string;
+  recordType: RecordType;
+  records: HealthRecord[];
+  onAdd: (recordType: RecordType, title: string, details: string) => void;
+}) {
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    onAdd(recordType, String(form.get('title')), String(form.get('details')));
+    event.currentTarget.reset();
+  }
   return (
     <article className="panel">
       <p className="eyebrow">{eyebrow}</p>
       <h2>{title}</h2>
-      <div className="collection-grid">{items.map((item) => <RowItem key={`${item.title}-${item.meta}`} {...item} />)}</div>
+      <form className="inline-add-form" onSubmit={submit}>
+        <input name="title" required placeholder={`Add ${recordType.replaceAll('_', ' ')} title`} />
+        <input name="details" required placeholder="Details" />
+        <button className="primary-btn">Add</button>
+      </form>
+      <div className="collection-grid">
+        {records.map((item) => (
+          <RowItem key={item.id} title={item.title} detail={item.details} meta={new Date(item.occurred_at).toLocaleDateString()} />
+        ))}
+      </div>
     </article>
   );
 }
@@ -864,6 +939,43 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Could not read file.'));
     reader.readAsDataURL(file);
   });
+}
+
+function initialRecords(): Record<RecordType, HealthRecord[]> {
+  return {
+    medications: medications.map((item) =>
+      recordFromSeed('medications', item.name, `${item.dose} • ${item.schedule} • ${item.status}`),
+    ),
+    reports: reports.map((item) =>
+      recordFromSeed('reports', item.title, `${item.summary} (${item.type}, ${item.date})`),
+    ),
+    prescriptions: prescriptions.map((item) =>
+      recordFromSeed('prescriptions', item.medicine, `${item.instruction} • ${item.extractedFrom}`),
+    ),
+    wearables: wearableStats.map((item) =>
+      recordFromSeed('wearables', item.label, item.value),
+    ),
+    reminders: reminders.map((item) =>
+      recordFromSeed('reminders', item.title, `${item.detail} • ${item.time} • ${item.done ? 'Done' : 'Upcoming'}`),
+    ),
+    insights: insights.map((item, index) =>
+      recordFromSeed('insights', `Insight ${index + 1}`, item),
+    ),
+  };
+}
+
+function recordFromSeed(recordType: RecordType, title: string, details: string): HealthRecord {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    record_type: recordType,
+    title,
+    details,
+    metadata: { seed: true },
+    occurred_at: now,
+    created_at: now,
+    archived_at: null,
+  };
 }
 
 function formatDuration(seconds: number) {

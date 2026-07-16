@@ -241,3 +241,44 @@ def test_prescription_photo_analysis_creates_medical_memory() -> None:
         assert body["created_event"]["category"] == "medical"
         assert body["created_event"]["source"] == "prescription_ocr"
         assert "not a diagnosis" in body["safety_note"]
+
+
+def test_health_records_are_user_scoped_and_archivable() -> None:
+    with TestClient(app) as client:
+        first_auth = register_user(client, "records-first")
+        second_auth = register_user(client, "records-second")
+
+        create_response = client.post(
+            "/api/v1/records/medications",
+            headers={"Authorization": first_auth["authorization"]},
+            json={
+                "title": "Vitamin D3",
+                "details": "1000 IU after breakfast",
+                "metadata": {"status": "active", "dose": "1000 IU"},
+            },
+        )
+        assert create_response.status_code == 201
+        record_id = create_response.json()["id"]
+
+        first_list = client.get(
+            "/api/v1/records/medications",
+            headers={"Authorization": first_auth["authorization"]},
+        )
+        second_list = client.get(
+            "/api/v1/records/medications",
+            headers={"Authorization": second_auth["authorization"]},
+        )
+        archive_response = client.post(
+            f"/api/v1/records/medications/{record_id}/archive",
+            headers={"Authorization": first_auth["authorization"]},
+        )
+        visible_after_archive = client.get(
+            "/api/v1/records/medications",
+            headers={"Authorization": first_auth["authorization"]},
+        )
+
+        assert [record["id"] for record in first_list.json()] == [record_id]
+        assert second_list.json() == []
+        assert archive_response.status_code == 200
+        assert archive_response.json()["archived_at"] is not None
+        assert visible_after_archive.json() == []

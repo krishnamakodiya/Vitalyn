@@ -4,13 +4,15 @@ from collections.abc import Iterator
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+import json
 from time import monotonic
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.responses import RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth_service import AuthError, AuthService
@@ -18,12 +20,14 @@ from app.config import Settings, get_settings
 from app.database import get_db_session, init_db
 from app.domain import MemoryCategory
 from app.domain import EventSource
-from app.models import UserRecord
+from app.models import HealthRecord, UserRecord, as_utc
 from app.repository import SqlHealthMemoryRepository
 from app.schemas import (
     DoctorSummaryRead,
     DoctorSummarySection,
     AiAnalysisRead,
+    HealthRecordCreate,
+    HealthRecordRead,
     PrescriptionAnalyze,
     TimelineEventCreate,
     TimelineEventRead,
@@ -114,6 +118,36 @@ def prescription_summary(image_name: str, question: str, entities: list[str]) ->
         f"User question: {question.strip()} "
         f"Prototype extraction found: {entity_text}. "
         "Use this to organize questions for a doctor or pharmacist; do not change medicines without professional advice."
+    )
+
+
+ALLOWED_RECORD_TYPES = {
+    "medications",
+    "reports",
+    "prescriptions",
+    "wearables",
+    "reminders",
+    "insights",
+    "chat_messages",
+}
+
+
+def ensure_record_type(record_type: str) -> str:
+    if record_type not in ALLOWED_RECORD_TYPES:
+        raise HTTPException(status_code=404, detail="record type not found")
+    return record_type
+
+
+def health_record_read(record: HealthRecord) -> HealthRecordRead:
+    return HealthRecordRead(
+        id=record.id,
+        record_type=record.record_type,
+        title=record.title,
+        details=record.details,
+        metadata=json.loads(record.metadata_json or "{}"),
+        occurred_at=as_utc(record.occurred_at),
+        created_at=as_utc(record.created_at),
+        archived_at=as_utc(record.archived_at) if record.archived_at else None,
     )
 
 
@@ -346,6 +380,72 @@ async def analyze_prescription_photo(
         safety_note=SAFETY_NOTE,
         created_event=TimelineEventRead.model_validate(event),
     )
+
+
+@api_v1.get("/records/{record_type}", response_model=list[HealthRecordRead])
+async def list_health_records(
+    record_type: str,
+    include_archived: bool = Query(default=False),
+    user: UserRecord = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+) -> list[HealthRecordRead]:
+    record_type = ensure_record_type(record_type)
+    statement = select(HealthRecord).where(
+        HealthRecord.user_id == user.id,
+        HealthRecord.record_type == record_type,
+    )
+    if not include_archived:
+        statement = statement.where(HealthRecord.archived_at.is_(None))
+    statement = statement.order_by(HealthRecord.occurred_at.desc())
+    return [health_record_read(record) for record in session.scalars(statement).all()]
+
+
+@api_v1.post(
+    "/records/{record_type}",
+    response_model=HealthRecordRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_health_record(
+    record_type: str,
+    payload: HealthRecordCreate,
+    user: UserRecord = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+) -> HealthRecordRead:
+    record_type = ensure_record_type(record_type)
+    now = datetime.now(UTC)
+    record = HealthRecord(
+        id=str(uuid4()),
+        user_id=user.id,
+        record_type=record_type,
+        title=payload.title.strip(),
+        details=payload.details.strip(),
+        metadata_json=json.dumps(payload.metadata),
+        occurred_at=payload.occurred_at or now,
+        created_at=now,
+        archived_at=None,
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return health_record_read(record)
+
+
+@api_v1.post("/records/{record_type}/{record_id}/archive", response_model=HealthRecordRead)
+async def archive_health_record(
+    record_type: str,
+    record_id: str,
+    user: UserRecord = Depends(get_current_user),
+    session: Session = Depends(get_db_session),
+) -> HealthRecordRead:
+    record_type = ensure_record_type(record_type)
+    record = session.get(HealthRecord, record_id)
+    if record is None or record.user_id != user.id or record.record_type != record_type:
+        raise HTTPException(status_code=404, detail="record not found")
+    if record.archived_at is None:
+        record.archived_at = datetime.now(UTC)
+        session.commit()
+        session.refresh(record)
+    return health_record_read(record)
 
 
 @api_v1.delete("/timeline-events/{event_id}", status_code=status.HTTP_409_CONFLICT)

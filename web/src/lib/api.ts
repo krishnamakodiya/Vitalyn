@@ -48,6 +48,17 @@ export type AiAnalysis = {
   created_event: TimelineEvent;
 };
 
+export type HealthRecord = {
+  id: string;
+  record_type: string;
+  title: string;
+  details: string;
+  metadata: Record<string, unknown>;
+  occurred_at: string;
+  created_at: string;
+  archived_at: string | null;
+};
+
 const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api/v1';
 
@@ -157,6 +168,29 @@ export const api = {
           image_name: input.imageName,
           image_data: input.imageData,
           question: input.question,
+        }),
+      },
+      token,
+    );
+  },
+
+  listRecords(token: string, recordType: string): Promise<HealthRecord[]> {
+    return request<HealthRecord[]>(`/records/${recordType}`, {}, token);
+  },
+
+  createRecord(
+    token: string,
+    recordType: string,
+    input: { title: string; details: string; metadata?: Record<string, unknown> },
+  ): Promise<HealthRecord> {
+    return request<HealthRecord>(
+      `/records/${recordType}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          title: input.title,
+          details: input.details,
+          metadata: input.metadata ?? {},
         }),
       },
       token,
