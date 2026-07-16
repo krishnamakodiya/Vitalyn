@@ -1,0 +1,2 @@
+"""Vitalyn backend application."""
+
