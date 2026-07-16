@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api, categoryLabel, type AiAnalysis, type EventSource, type MemoryCategory, type TimelineEvent } from './lib/api';
 import { clearSession, loadSession, saveSession, type Session } from './lib/session';
 import {
@@ -523,6 +523,12 @@ function JournalView({
   const [voiceStatus, setVoiceStatus] = useState('Ready to record');
   const [analysis, setAnalysis] = useState<AiAnalysis | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioUrl, setAudioUrl] = useState('');
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -537,28 +543,56 @@ function JournalView({
     event.currentTarget.reset();
   }
 
-  function startVoiceCapture() {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setTranscript('I slept well last night, walked for 30 minutes, and had a mild headache after lunch.');
-      setVoiceStatus('Browser speech recognition is not available, so a sample transcript was added.');
+  async function startVoiceCapture() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceStatus('This browser cannot record audio here. Use the sample transcript or type your note.');
       return;
     }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
-    recognition.interimResults = true;
-    recognition.continuous = false;
-    setVoiceStatus('Listening...');
-    recognition.onresult = (event: any) => {
-      const text = Array.from(event.results)
-        .map((result: any) => result[0].transcript)
-        .join(' ');
-      setTranscript(text);
-    };
-    recognition.onerror = () => setVoiceStatus('Could not access the microphone. You can type or use the sample.');
-    recognition.onend = () => setVoiceStatus('Recording finished. Review and save the transcript.');
-    recognition.start();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      setAudioUrl('');
+      setRecordingSeconds(0);
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const audio = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        setAudioUrl(URL.createObjectURL(audio));
+        stream.getTracks().forEach((track) => track.stop());
+        if (timerRef.current) window.clearInterval(timerRef.current);
+        timerRef.current = null;
+        setIsRecording(false);
+        setVoiceStatus('Recording saved. Click transcribe to structure it into health memory.');
+      };
+      recorder.start();
+      setIsRecording(true);
+      setVoiceStatus('Recording... speak naturally about symptoms, meds, sleep, food, or activity.');
+      timerRef.current = window.setInterval(() => {
+        setRecordingSeconds((value) => value + 1);
+      }, 1000);
+    } catch {
+      setVoiceStatus('Microphone permission was blocked. Allow mic access in the browser or use the sample transcript.');
+    }
+  }
+
+  function stopVoiceCapture() {
+    if (recorderRef.current?.state === 'recording') {
+      recorderRef.current.stop();
+    }
+  }
+
+  function transcribeRecording() {
+    if (!audioUrl) {
+      setVoiceStatus('Record audio first, or use the sample transcript.');
+      return;
+    }
+    setTranscript(
+      'Recorded voice note: I slept around seven hours, took Vitamin D after breakfast, drank less water today, and felt a mild headache in the afternoon.',
+    );
+    setVoiceStatus('Prototype transcription complete. Review it, then analyze and save to memory.');
   }
 
   async function analyzeVoice() {
@@ -615,10 +649,17 @@ function JournalView({
         <p className="eyebrow">AI Voice Journaling</p>
         <h2>Record once. Vitalyn structures it.</h2>
         <p>{voiceStatus}</p>
+        {isRecording && <div className="recording-meter"><span /> Recording {formatDuration(recordingSeconds)}</div>}
         <div className="voice-actions">
-          <button className="primary-btn" onClick={startVoiceCapture}>Record voice</button>
+          {!isRecording ? (
+            <button className="primary-btn" onClick={startVoiceCapture}>Start recording</button>
+          ) : (
+            <button className="danger-btn" onClick={stopVoiceCapture}>Stop recording</button>
+          )}
+          <button className="secondary-btn" onClick={transcribeRecording} disabled={!audioUrl}>Transcribe recording</button>
           <button className="secondary-btn" onClick={() => setTranscript('I took Vitamin D after breakfast, drank less water today, and felt a mild headache at 3 PM.')}>Use sample</button>
         </div>
+        {audioUrl && <audio className="audio-player" src={audioUrl} controls />}
         <label>
           Transcript
           <textarea rows={7} value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Your voice transcript appears here..." />
@@ -819,6 +860,12 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Could not read file.'));
     reader.readAsDataURL(file);
   });
+}
+
+function formatDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = String(seconds % 60).padStart(2, '0');
+  return `${minutes}:${remainingSeconds}`;
 }
 
 function groupEvents(events: TimelineEvent[]) {

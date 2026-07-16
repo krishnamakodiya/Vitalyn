@@ -18,6 +18,8 @@
 - Decided to build the website/web app before continuing mobile because web tooling is available and it can validate the product flow faster.
 - Built a full website-first prototype matching the requested health dashboard direction: Sunny Shah demo workspace, dashboard metrics, AI health chat, journal, timeline, medications, reports, prescriptions, wearables, doctor summary, reminders, insights, settings, and responsive layout.
 - Verified the web app with `npm test`, `npm run build`, desktop browser inspection, and mobile-width overflow checks.
+- Added interactive voice journaling prototype with microphone recording, stop control, audio playback, prototype transcription, entity extraction, and save-to-memory flow.
+- Added interactive prescription/photo medicine question workflow with upload preview, AI-style safe explanation, and medical-memory timeline save.
 
 ## Remaining Work
 
@@ -52,7 +54,7 @@
 - Local SQLite is not a production substitute.
 - Flutter cannot be verified until Flutter tooling is installed.
 - Current rate limiter is in-process and must move to Redis for multi-instance production.
-- Most prototype modules use rich local demo data; timeline/auth connects to backend where available.
+- Voice journal, prescription/photo analysis, timeline, and auth connect to backend where available. Other prototype modules use rich local demo data.
 
 ## Technical Decisions
 

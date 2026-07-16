@@ -129,6 +129,15 @@ button { cursor: pointer; }
   color: #fff;
   font-weight: 800;
 }
+.danger-btn {
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 18px;
+  background: linear-gradient(135deg, #f05b6b, #c73b52);
+  color: #fff;
+  font-weight: 800;
+}
 
 .main-stage { min-width: 0; padding: 22px 34px 34px; }
 .topbar {
@@ -225,8 +234,29 @@ p { color: var(--muted); line-height: 1.55; }
 }
 .voice-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+.recording-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: #fff0f2;
+  color: #b33448;
+  font-weight: 900;
+}
+.recording-meter span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f05b6b;
+  box-shadow: 0 0 0 8px rgba(240, 91, 107, .16);
+}
+.audio-player {
+  width: 100%;
 }
 .analysis-card {
   display: grid;
