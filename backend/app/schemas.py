@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain import EventSource, MemoryCategory
@@ -83,3 +85,21 @@ class AiAnalysisRead(BaseModel):
     extracted_entities: list[str]
     safety_note: str
     created_event: TimelineEventRead
+
+
+class HealthRecordCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    details: str = Field(min_length=1, max_length=4000)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    occurred_at: datetime | None = None
+
+
+class HealthRecordRead(BaseModel):
+    id: str
+    record_type: str
+    title: str
+    details: str
+    metadata: dict[str, Any]
+    occurred_at: datetime
+    created_at: datetime
+    archived_at: datetime | None

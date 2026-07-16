@@ -79,3 +79,21 @@ class UserRecord(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class HealthRecord(Base):
+    __tablename__ = "health_records"
+    __table_args__ = (
+        Index("ix_health_records_user_type", "user_id", "record_type"),
+        Index("ix_health_records_user_time", "user_id", "occurred_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    record_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    details: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

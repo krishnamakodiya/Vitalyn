@@ -195,10 +195,10 @@ export function App() {
     <main className="product-shell">
       <Sidebar activeView={view} onViewChange={setView} />
       <section className="main-stage">
-        <TopBar darkMode={darkMode} onToggleTheme={() => setDarkMode((value) => !value)} onSignOut={signOut} />
+        <TopBar session={session} darkMode={darkMode} onToggleTheme={() => setDarkMode((value) => !value)} onSignOut={signOut} />
         {error && <div className="status-banner">{error}</div>}
-        {view === 'dashboard' && <Dashboard events={events} onViewChange={setView} onSendChat={sendChat} />}
-        {view === 'chat' && <ChatView chat={chat} onSend={sendChat} />}
+        {view === 'dashboard' && <Dashboard displayName={session.user.displayName} events={events} onViewChange={setView} onSendChat={sendChat} />}
+        {view === 'chat' && <ChatView displayName={session.user.displayName} chat={chat} onSend={sendChat} />}
         {view === 'journal' && (
           <JournalView
             token={session.accessToken}
@@ -320,10 +320,12 @@ function Logo() {
 }
 
 function TopBar({
+  session,
   darkMode,
   onToggleTheme,
   onSignOut,
 }: {
+  session: Session;
   darkMode: boolean;
   onToggleTheme: () => void;
   onSignOut: () => void;
@@ -339,8 +341,8 @@ function TopBar({
         <button className="round-btn" aria-label="Notifications">○<b>3</b></button>
         <button className="round-btn" onClick={onToggleTheme}>{darkMode ? 'L' : 'D'}</button>
         <div className="profile-chip">
-          <div className="avatar">SS</div>
-          <span>{demoUser.name}</span>
+          <div className="avatar">{initials(session.user.displayName)}</div>
+          <span>{session.user.displayName}</span>
         </div>
         <button className="ghost-btn" onClick={onSignOut}>Sign out</button>
       </div>
@@ -349,10 +351,12 @@ function TopBar({
 }
 
 function Dashboard({
+  displayName,
   events,
   onViewChange,
   onSendChat,
 }: {
+  displayName: string;
   events: TimelineEvent[];
   onViewChange: (view: View) => void;
   onSendChat: (message: string) => void;
@@ -361,7 +365,7 @@ function Dashboard({
     <div className="dashboard">
       <div className="welcome-row">
         <div>
-          <h1>Good Morning, Sunny</h1>
+          <h1>Good Morning, {firstName(displayName)}</h1>
           <p>Your health is your greatest wealth. Let us take care of it today.</p>
         </div>
         <button className="outline-btn" onClick={() => onViewChange('chat')}>AI Health Chat</button>
@@ -370,7 +374,7 @@ function Dashboard({
         {metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />)}
       </section>
       <section className="dashboard-grid">
-        <AssistantCard onSend={onSendChat} compact />
+        <AssistantCard displayName={displayName} onSend={onSendChat} compact />
         <OverviewChart />
         <ReminderCard />
         <RecentLogs events={events} onViewAll={() => onViewChange('timeline')} />
@@ -433,7 +437,7 @@ function OverviewChart() {
   );
 }
 
-function AssistantCard({ onSend, compact = false }: { onSend: (message: string) => void; compact?: boolean }) {
+function AssistantCard({ displayName, onSend, compact = false }: { displayName?: string; onSend: (message: string) => void; compact?: boolean }) {
   const [message, setMessage] = useState('');
   const quick = ['I am feeling good', 'I have a headache', 'I slept well last night', 'Log my morning walk'];
   function submit(text = message) {
@@ -444,7 +448,7 @@ function AssistantCard({ onSend, compact = false }: { onSend: (message: string) 
   return (
     <article className={`panel assistant-card ${compact ? 'compact' : ''}`}>
       <p className="eyebrow">AI Health Assistant</p>
-      <div className="assistant-bubble">Hi Sunny. I am your AI health companion. How are you feeling today?</div>
+      <div className="assistant-bubble">Hi {firstName(displayName || demoUser.name)}. I am your AI health companion. How are you feeling today?</div>
       <div className="quick-grid">
         {quick.map((item) => <button key={item} onClick={() => submit(item)}>{item}</button>)}
       </div>
@@ -497,7 +501,7 @@ function HealthInsights() {
   );
 }
 
-function ChatView({ chat, onSend }: { chat: ChatMessage[]; onSend: (message: string) => void }) {
+function ChatView({ displayName, chat, onSend }: { displayName: string; chat: ChatMessage[]; onSend: (message: string) => void }) {
   return (
     <section className="view-grid two">
       <article className="panel chat-thread">
@@ -505,7 +509,7 @@ function ChatView({ chat, onSend }: { chat: ChatMessage[]; onSend: (message: str
         <h2>Personal health companion</h2>
         {chat.map((message, index) => <div key={`${message.time}-${index}`} className={`message ${message.from}`}>{message.text}<time>{message.time}</time></div>)}
       </article>
-      <AssistantCard onSend={onSend} />
+      <AssistantCard displayName={displayName} onSend={onSend} />
     </section>
   );
 }
@@ -866,6 +870,16 @@ function formatDuration(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = String(seconds % 60).padStart(2, '0');
   return `${minutes}:${remainingSeconds}`;
+}
+
+function firstName(name: string) {
+  return name.trim().split(/\s+/)[0] || 'there';
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'V';
+  return parts.slice(0, 2).map((part) => part[0].toUpperCase()).join('');
 }
 
 function groupEvents(events: TimelineEvent[]) {
