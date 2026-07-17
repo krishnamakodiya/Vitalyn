@@ -339,6 +339,8 @@ function AuthScreen({
 }) {
   return (
     <main className="auth-product">
+      <div className="auth-orb one" />
+      <div className="auth-orb two" />
       <section className="auth-story">
         <Logo />
         <h1>Vitalyn remembers the whole health story.</h1>
@@ -350,6 +352,11 @@ function AuthScreen({
           <span>Health timeline</span>
           <span>Doctor mode</span>
           <span>AI companion</span>
+        </div>
+        <div className="auth-live-strip">
+          <span>Voice → facts</span>
+          <span>Reports → memory</span>
+          <span>AI → safer questions</span>
         </div>
       </section>
       <section className="auth-card">
