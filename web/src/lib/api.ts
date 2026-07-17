@@ -66,7 +66,7 @@ export type VoiceTranscription = {
 };
 
 export const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+  import.meta.env.VITE_API_BASE_URL?.trim() || '/api/v1';
 
 async function request<T>(
   path: string,
