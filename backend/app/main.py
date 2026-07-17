@@ -8,13 +8,14 @@ import json
 from time import monotonic
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai_provider import AiNotConfiguredError, AiProviderError, transcribe_audio_with_config
 from app.auth_service import AuthError, AuthService
 from app.config import Settings, get_settings
 from app.database import get_db_session, init_db
@@ -36,6 +37,7 @@ from app.schemas import (
     UserRead,
     UserRegister,
     VoiceJournalAnalyze,
+    VoiceTranscriptionRead,
 )
 from app.security import verify_access_token
 from app.service import HealthMemoryService
@@ -352,6 +354,35 @@ async def analyze_voice_journal(
         extracted_entities=entities,
         safety_note=SAFETY_NOTE,
         created_event=TimelineEventRead.model_validate(event),
+    )
+
+
+@api_v1.post("/ai/voice-transcription", response_model=VoiceTranscriptionRead)
+async def transcribe_voice_recording(
+    audio: UploadFile = File(...),
+    user: UserRecord = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> VoiceTranscriptionRead:
+    content = await audio.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="audio file is empty")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="audio file must be 10 MB or smaller")
+    try:
+        result = transcribe_audio_with_config(
+            settings,
+            filename=audio.filename or "recording.webm",
+            content_type=audio.content_type or "audio/webm",
+            audio_bytes=content,
+        )
+    except AiNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except AiProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return VoiceTranscriptionRead(
+        transcript=result.transcript,
+        provider=result.provider,
+        model=result.model,
     )
 
 

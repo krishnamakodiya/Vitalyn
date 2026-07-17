@@ -73,6 +73,12 @@ class VoiceJournalAnalyze(BaseModel):
     transcript: str = Field(min_length=1, max_length=4000)
 
 
+class VoiceTranscriptionRead(BaseModel):
+    transcript: str
+    provider: str
+    model: str
+
+
 class PrescriptionAnalyze(BaseModel):
     image_name: str = Field(min_length=1, max_length=240)
     image_data: str = Field(min_length=1, max_length=5_000_000)

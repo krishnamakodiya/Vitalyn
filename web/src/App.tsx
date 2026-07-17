@@ -260,9 +260,9 @@ export function App() {
     <main className="product-shell">
       <Sidebar activeView={view} onViewChange={setView} />
       <section className="main-stage">
-        <TopBar session={session} darkMode={darkMode} onToggleTheme={() => setDarkMode((value) => !value)} onSignOut={signOut} />
+        <TopBar session={session} darkMode={darkMode} isDemo={isDemoSession(session)} onToggleTheme={() => setDarkMode((value) => !value)} onSignOut={signOut} />
         {error && <div className="status-banner">{error}</div>}
-        {view === 'dashboard' && <Dashboard displayName={session.user.displayName} events={events} records={records} onViewChange={setView} onSendChat={sendChat} />}
+        {view === 'dashboard' && <Dashboard displayName={session.user.displayName} events={events} records={records} isDemo={isDemoSession(session)} onViewChange={setView} onSendChat={sendChat} />}
         {view === 'chat' && <ChatView displayName={session.user.displayName} chat={chat} onSend={sendChat} />}
         {view === 'journal' && (
           <JournalView
@@ -340,10 +340,10 @@ function AuthScreen({
         </div>
         <form className="form-stack" onSubmit={onSubmit}>
           {mode === 'register' && (
-            <label>Display name<input name="displayName" defaultValue="Sunny Shah" required /></label>
+            <label>Display name<input name="displayName" placeholder="Your name" required /></label>
           )}
-          <label>Email<input name="email" type="email" defaultValue={demoUser.email} required /></label>
-          <label>Password<input name="password" type="password" defaultValue={demoUser.password} minLength={mode === 'register' ? 12 : 1} required /></label>
+          <label>Email<input name="email" type="email" placeholder="you@example.com" required /></label>
+          <label>Password<input name="password" type="password" placeholder={mode === 'register' ? 'At least 8 characters' : 'Your password'} minLength={mode === 'register' ? 8 : 1} required /></label>
           {error && <div className="status-banner danger">{error}</div>}
           <button className="primary-btn">{mode === 'register' ? 'Create account' : 'Login'}</button>
           <button className="secondary-btn" type="button" onClick={onDemo}>Open Sunny demo workspace</button>
@@ -389,11 +389,13 @@ function Logo() {
 function TopBar({
   session,
   darkMode,
+  isDemo,
   onToggleTheme,
   onSignOut,
 }: {
   session: Session;
   darkMode: boolean;
+  isDemo: boolean;
   onToggleTheme: () => void;
   onSignOut: () => void;
 }) {
@@ -405,7 +407,7 @@ function TopBar({
         <kbd>Ctrl /</kbd>
       </label>
       <div className="top-actions">
-        <button className="round-btn" aria-label="Notifications">○<b>3</b></button>
+        <button className="round-btn" aria-label="Notifications">○{isDemo && <b>3</b>}</button>
         <button className="round-btn" onClick={onToggleTheme}>{darkMode ? 'L' : 'D'}</button>
         <div className="profile-chip">
           <div className="avatar">{initials(session.user.displayName)}</div>
@@ -421,12 +423,14 @@ function Dashboard({
   displayName,
   events,
   records,
+  isDemo,
   onViewChange,
   onSendChat,
 }: {
   displayName: string;
   events: TimelineEvent[];
   records: Record<RecordType, HealthRecord[]>;
+  isDemo: boolean;
   onViewChange: (view: View) => void;
   onSendChat: (message: string) => void;
 }) {
@@ -440,11 +444,11 @@ function Dashboard({
         <button className="outline-btn" onClick={() => onViewChange('chat')}>AI Health Chat</button>
       </div>
       <section className="metric-grid">
-        {metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />)}
+        {isDemo ? metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />) : freshMetrics.map((metric) => <FreshMetricCard key={metric.label} metric={metric} />)}
       </section>
       <section className="dashboard-grid">
         <AssistantCard displayName={displayName} onSend={onSendChat} compact />
-        <OverviewChart />
+        <OverviewChart isDemo={isDemo} />
         <ReminderCard records={records.reminders} />
         <RecentLogs events={events} onViewAll={() => onViewChange('timeline')} />
         <LatestReports records={records.reports} onViewAll={() => onViewChange('reports')} />
@@ -480,28 +484,58 @@ function MetricCard({ metric }: { metric: (typeof metrics)[number] }) {
   );
 }
 
+const freshMetrics = [
+  { label: 'Health Score', action: 'Add health memories to calculate score.' },
+  { label: 'Steps', action: 'Connect a wearable or add steps manually.' },
+  { label: 'Sleep', action: 'Record sleep from the journal or wearable.' },
+  { label: 'Heart Rate', action: 'Connect wearable data to show trends.' },
+  { label: 'Water Intake', action: 'Log hydration to start tracking.' },
+];
+
+function FreshMetricCard({ metric }: { metric: (typeof freshMetrics)[number] }) {
+  return (
+    <article className="metric-card">
+      <div className="metric-top">
+        <span className="metric-icon">{metric.label.slice(0, 1)}</span>
+        <div>
+          <p>{metric.label}</p>
+          <strong>-- <small>No data</small></strong>
+        </div>
+        <em>Fresh</em>
+      </div>
+      <div className="notice">{metric.action}</div>
+    </article>
+  );
+}
+
 function Sparkline({ values, color }: { values: number[]; color: string }) {
   const points = values.map((value, index) => `${(index / (values.length - 1)) * 100},${60 - value}`).join(' ');
   return <svg className="sparkline" viewBox="0 0 100 65" role="img" aria-label="Heart rate sparkline"><polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-function OverviewChart() {
+function OverviewChart({ isDemo }: { isDemo: boolean }) {
   return (
     <article className="panel chart-panel">
       <div className="section-head horizontal">
         <div><h2>Health Overview</h2></div>
         <button className="ghost-btn">This Week</button>
       </div>
-      <svg viewBox="0 0 600 260" className="chart" role="img" aria-label="Weekly health overview chart">
-        {[0, 25, 50, 75, 100].map((line) => <line key={line} x1="42" x2="580" y1={220 - line * 1.7} y2={220 - line * 1.7} />)}
-        {overviewSeries.map((series) => (
-          <polyline key={series.label} points={series.values.map((value, index) => `${50 + index * 88},${220 - value * 1.7}`).join(' ')} fill="none" stroke={series.color} strokeWidth="4" strokeLinecap="round" />
-        ))}
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => <text key={day} x={42 + index * 88} y="248">{day}</text>)}
-      </svg>
-      <div className="legend">
-        {overviewSeries.map((series) => <span key={series.label}><i style={{ background: series.color }} />{series.label}</span>)}
-      </div>
+      {isDemo ? (
+        <>
+          <svg viewBox="0 0 600 260" className="chart" role="img" aria-label="Weekly health overview chart">
+            {[0, 25, 50, 75, 100].map((line) => <line key={line} x1="42" x2="580" y1={220 - line * 1.7} y2={220 - line * 1.7} />)}
+            {overviewSeries.map((series) => (
+              <polyline key={series.label} points={series.values.map((value, index) => `${50 + index * 88},${220 - value * 1.7}`).join(' ')} fill="none" stroke={series.color} strokeWidth="4" strokeLinecap="round" />
+            ))}
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => <text key={day} x={42 + index * 88} y="248">{day}</text>)}
+          </svg>
+          <div className="legend">
+            {overviewSeries.map((series) => <span key={series.label}><i style={{ background: series.color }} />{series.label}</span>)}
+          </div>
+        </>
+      ) : (
+        <EmptyState text="No weekly overview yet. Add journal entries or wearable records to build your chart." />
+      )}
     </article>
   );
 }
@@ -565,7 +599,7 @@ function HealthInsights({ records }: { records: HealthRecord[] }) {
       <p className="eyebrow">Health Insights</p>
       <h2>This month</h2>
       {records.length === 0 ? <p>Add health memories to generate insights.</p> : records.slice(0, 3).map((item) => <p key={item.id}>✓ {item.details}</p>)}
-      <div className="score-ring"><strong>85%</strong><span>Consistency Score</span></div>
+      {records.length > 0 && <div className="score-ring"><strong>{Math.min(95, 60 + records.length * 8)}%</strong><span>Consistency Score</span></div>}
     </article>
   );
 }
@@ -598,6 +632,7 @@ function JournalView({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [audioUrl, setAudioUrl] = useState('');
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -625,6 +660,7 @@ function JournalView({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunksRef.current = [];
       setAudioUrl('');
+      setAudioBlob(null);
       setRecordingSeconds(0);
       const recorder = new MediaRecorder(stream);
       recorderRef.current = recorder;
@@ -634,6 +670,7 @@ function JournalView({
       recorder.onstop = () => {
         const audio = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         setAudioUrl(URL.createObjectURL(audio));
+        setAudioBlob(audio);
         stream.getTracks().forEach((track) => track.stop());
         if (timerRef.current) window.clearInterval(timerRef.current);
         timerRef.current = null;
@@ -657,15 +694,26 @@ function JournalView({
     }
   }
 
-  function transcribeRecording() {
-    if (!audioUrl) {
+  async function transcribeRecording() {
+    if (!audioBlob) {
       setVoiceStatus('Record audio first, or use the sample transcript.');
       return;
     }
-    setTranscript(
-      'Recorded voice note: I slept around seven hours, took Vitamin D after breakfast, drank less water today, and felt a mild headache in the afternoon.',
-    );
-    setVoiceStatus('Prototype transcription complete. Review it, then analyze and save to memory.');
+    if (token === 'offline-demo-token') {
+      setVoiceStatus('Transcription needs a real account connected to the backend.');
+      return;
+    }
+    setIsProcessing(true);
+    setVoiceStatus('Uploading audio for AI transcription...');
+    try {
+      const result = await api.transcribeVoiceRecording(token, audioBlob);
+      setTranscript(result.transcript);
+      setVoiceStatus(`Transcribed with ${result.provider} (${result.model}). Review it, then save to memory.`);
+    } catch (error) {
+      setVoiceStatus(error instanceof Error ? error.message : 'Unable to transcribe recording.');
+    } finally {
+      setIsProcessing(false);
+    }
   }
 
   async function analyzeVoice() {
@@ -729,7 +777,7 @@ function JournalView({
           ) : (
             <button className="danger-btn" onClick={stopVoiceCapture}>Stop recording</button>
           )}
-          <button className="secondary-btn" onClick={transcribeRecording} disabled={!audioUrl}>Transcribe recording</button>
+          <button className="secondary-btn" onClick={() => void transcribeRecording()} disabled={!audioBlob || isProcessing}>Transcribe recording</button>
           <button className="secondary-btn" onClick={() => setTranscript('I took Vitamin D after breakfast, drank less water today, and felt a mild headache at 3 PM.')}>Use sample</button>
         </div>
         {audioUrl && <audio className="audio-player" src={audioUrl} controls />}

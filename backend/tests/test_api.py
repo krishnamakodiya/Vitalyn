@@ -223,6 +223,47 @@ def test_voice_journal_analysis_creates_timeline_event() -> None:
         assert len(timeline_response.json()) == 1
 
 
+def test_voice_transcription_requires_authentication() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/ai/voice-transcription",
+            files={"audio": ("note.webm", b"audio-bytes", "audio/webm")},
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "authentication required"
+
+
+def test_voice_transcription_reports_missing_provider_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with TestClient(app) as client:
+        auth = register_user(client, "transcribe-user")
+        response = client.post(
+            "/api/v1/ai/voice-transcription",
+            headers={"Authorization": auth["authorization"]},
+            files={"audio": ("note.webm", b"audio-bytes", "audio/webm")},
+        )
+
+        assert response.status_code == 503
+        assert "OPENAI_API_KEY" in response.json()["detail"]
+
+
+def test_voice_transcription_reports_invalid_gemini_key(monkeypatch) -> None:
+    monkeypatch.setenv("AI_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "AQ.not-a-google-ai-studio-key")
+    with TestClient(app) as client:
+        auth = register_user(client, "gemini-transcribe-user")
+        response = client.post(
+            "/api/v1/ai/voice-transcription",
+            headers={"Authorization": auth["authorization"]},
+            files={"audio": ("note.webm", b"audio-bytes", "audio/webm")},
+        )
+
+        assert response.status_code == 503
+        assert "starts with AIza" in response.json()["detail"]
+
+
 def test_prescription_photo_analysis_creates_medical_memory() -> None:
     with TestClient(app) as client:
         auth = register_user(client, "rx-user")

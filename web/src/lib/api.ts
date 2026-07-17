@@ -59,6 +59,12 @@ export type HealthRecord = {
   archived_at: string | null;
 };
 
+export type VoiceTranscription = {
+  transcript: string;
+  provider: string;
+  model: string;
+};
+
 export const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
@@ -103,6 +109,40 @@ async function request<T>(
       }
     } else if (typeof body === 'string' && body.trim()) {
       detail = `Request failed (${response.status}) at ${apiBaseUrl}${path}. The API did not return JSON.`;
+    }
+    throw new Error(detail);
+  }
+  return body as T;
+}
+
+async function upload<T>(
+  path: string,
+  formData: FormData,
+  token: string,
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+  } catch {
+    throw new Error(
+      `Could not reach Vitalyn API at ${apiBaseUrl}. Confirm the backend is running.`,
+    );
+  }
+
+  const contentType = response.headers.get('content-type') ?? '';
+  const body = contentType.includes('application/json')
+    ? await response.json().catch(() => null)
+    : await response.text().catch(() => '');
+  if (!response.ok) {
+    let detail = `Request failed (${response.status}) at ${apiBaseUrl}${path}.`;
+    if (body && typeof body === 'object' && 'detail' in body) {
+      detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
     }
     throw new Error(detail);
   }
@@ -173,6 +213,13 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ transcript }) },
       token,
     );
+  },
+
+  transcribeVoiceRecording(token: string, audio: Blob): Promise<VoiceTranscription> {
+    const formData = new FormData();
+    const extension = audio.type.includes('mp4') ? 'mp4' : 'webm';
+    formData.append('audio', audio, `vitalyn-recording.${extension}`);
+    return upload<VoiceTranscription>('/ai/voice-transcription', formData, token);
   },
 
   analyzePrescriptionPhoto(

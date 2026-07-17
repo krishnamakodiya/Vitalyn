@@ -1,0 +1,28 @@
+{
+  "name": "vitalyn",
+  "version": "1.0.0",
+  "description": "Personal AI Health Companion that builds a lifelong, structured health memory.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/krishnamakodiya/Vitalyn.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/krishnamakodiya/Vitalyn/issues"
+  },
+  "homepage": "https://github.com/krishnamakodiya/Vitalyn#readme",
+  "dependencies": {
+    "@google/genai": "^2.12.0",
+    "dotenv": "^17.4.2"
+  }
+}
