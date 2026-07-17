@@ -189,7 +189,7 @@ class GeminiProvider:
         if completed.returncode != 0:
             message = (completed.stderr or completed.stdout or "").strip()
             raise AiProviderError(
-                f"Gemini SDK rejected the transcription request: {message}"
+                f"Gemini SDK rejected the transcription request: {self._provider_message(message)}"
             )
 
         try:
@@ -252,7 +252,9 @@ class GeminiProvider:
                 body = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             message = exc.read().decode("utf-8", errors="replace")
-            raise AiProviderError(f"Gemini rejected the transcription request: {message}") from exc
+            raise AiProviderError(
+                f"Gemini rejected the transcription request: {self._provider_message(message)}"
+            ) from exc
         except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise AiProviderError("Gemini transcription provider was not reachable.") from exc
 
@@ -276,6 +278,22 @@ class GeminiProvider:
             return ""
         texts = [str(part.get("text", "")).strip() for part in parts if isinstance(part, dict)]
         return "\n".join(text for text in texts if text).strip()
+
+    @staticmethod
+    def _provider_message(message: str) -> str:
+        try:
+            payload = json.loads(message)
+        except json.JSONDecodeError:
+            return message or "The provider returned an unknown error."
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if isinstance(error, dict):
+            status = str(error.get("status") or "").strip()
+            text = str(error.get("message") or "").strip()
+            if status == "UNAVAILABLE":
+                return "Gemini is temporarily overloaded. Please try again in a minute."
+            if text:
+                return text
+        return message or "The provider returned an unknown error."
 
 
 def transcribe_audio_with_config(
