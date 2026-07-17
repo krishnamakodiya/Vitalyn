@@ -68,14 +68,31 @@ export type VoiceTranscription = {
 export const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL?.trim() || '/api/v1';
 
+function localApiFallbackUrl(): string | null {
+  if (apiBaseUrl !== '/api/v1') return null;
+  if (typeof window === 'undefined') return null;
+  if (!['127.0.0.1', 'localhost'].includes(window.location.hostname)) return null;
+  return 'http://127.0.0.1:8000/api/v1';
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
   token?: string,
 ): Promise<T> {
+  return requestFrom<T>(apiBaseUrl, path, options, token, true);
+}
+
+async function requestFrom<T>(
+  baseUrl: string,
+  path: string,
+  options: RequestInit = {},
+  token?: string,
+  allowLocalFallback = false,
+): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -84,8 +101,12 @@ async function request<T>(
       },
     });
   } catch (error) {
+    const fallbackUrl = allowLocalFallback ? localApiFallbackUrl() : null;
+    if (fallbackUrl && fallbackUrl !== baseUrl) {
+      return requestFrom<T>(fallbackUrl, path, options, token, false);
+    }
     throw new Error(
-      `Could not reach Vitalyn API at ${apiBaseUrl}. Confirm the backend is running.`,
+      `Could not reach Vitalyn API at ${baseUrl}. Confirm the backend is running.`,
     );
   }
 
@@ -94,7 +115,16 @@ async function request<T>(
     ? await response.json().catch(() => null)
     : await response.text().catch(() => '');
   if (!response.ok) {
-    let detail = `Request failed (${response.status}) at ${apiBaseUrl}${path}.`;
+    const fallbackUrl = allowLocalFallback ? localApiFallbackUrl() : null;
+    if (
+      fallbackUrl &&
+      fallbackUrl !== baseUrl &&
+      [404, 405].includes(response.status) &&
+      typeof body === 'string'
+    ) {
+      return requestFrom<T>(fallbackUrl, path, options, token, false);
+    }
+    let detail = `Request failed (${response.status}) at ${baseUrl}${path}.`;
     if (body && typeof body === 'object' && 'detail' in body) {
       const apiDetail = body.detail;
       if (typeof apiDetail === 'string') {
@@ -120,9 +150,19 @@ async function upload<T>(
   formData: FormData,
   token: string,
 ): Promise<T> {
+  return uploadTo<T>(apiBaseUrl, path, formData, token, true);
+}
+
+async function uploadTo<T>(
+  baseUrl: string,
+  path: string,
+  formData: FormData,
+  token: string,
+  allowLocalFallback = false,
+): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -130,8 +170,12 @@ async function upload<T>(
       body: formData,
     });
   } catch {
+    const fallbackUrl = allowLocalFallback ? localApiFallbackUrl() : null;
+    if (fallbackUrl && fallbackUrl !== baseUrl) {
+      return uploadTo<T>(fallbackUrl, path, formData, token, false);
+    }
     throw new Error(
-      `Could not reach Vitalyn API at ${apiBaseUrl}. Confirm the backend is running.`,
+      `Could not reach Vitalyn API at ${baseUrl}. Confirm the backend is running.`,
     );
   }
 
@@ -140,7 +184,16 @@ async function upload<T>(
     ? await response.json().catch(() => null)
     : await response.text().catch(() => '');
   if (!response.ok) {
-    let detail = `Request failed (${response.status}) at ${apiBaseUrl}${path}.`;
+    const fallbackUrl = allowLocalFallback ? localApiFallbackUrl() : null;
+    if (
+      fallbackUrl &&
+      fallbackUrl !== baseUrl &&
+      [404, 405].includes(response.status) &&
+      typeof body === 'string'
+    ) {
+      return uploadTo<T>(fallbackUrl, path, formData, token, false);
+    }
+    let detail = `Request failed (${response.status}) at ${baseUrl}${path}.`;
     if (body && typeof body === 'object' && 'detail' in body) {
       detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
     }
