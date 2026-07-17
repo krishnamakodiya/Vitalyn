@@ -102,7 +102,12 @@ export function App() {
         return next;
       });
       setError('');
-    } catch {
+    } catch (err) {
+      if (isInvalidTokenError(err)) {
+        signOut();
+        setError('Session expired. Please log in again.');
+        return;
+      }
       setError('Offline demo mode is active. Prototype data is available while the backend reconnects.');
     }
   }
@@ -219,7 +224,12 @@ export function App() {
           ...current,
           [recordType]: [saved, ...current[recordType].filter((item) => item.id !== localRecord.id)],
         }));
-      } catch {
+      } catch (err) {
+        if (isInvalidTokenError(err)) {
+          signOut();
+          setError('Session expired. Please log in again.');
+          return;
+        }
         setError('Saved locally. Backend sync for this record will need retry.');
       }
     }
@@ -1054,6 +1064,10 @@ function demoRecords(): Record<RecordType, HealthRecord[]> {
 
 function isDemoSession(session: Session): boolean {
   return session.accessToken === 'offline-demo-token' || session.user.email === demoUser.email;
+}
+
+function isInvalidTokenError(error: unknown): boolean {
+  return error instanceof Error && error.message.toLowerCase().includes('invalid access token');
 }
 
 function recordFromSeed(recordType: RecordType, title: string, details: string): HealthRecord {
