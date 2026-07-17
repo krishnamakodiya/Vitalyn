@@ -235,14 +235,22 @@ export function App() {
     }
   }
 
-  function sendChat(message: string) {
+  async function sendChat(message: string) {
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const reply = assistantReplies[chat.length % assistantReplies.length];
     setChat((current) => [
       ...current,
       { from: 'user', text: message, time: now },
-      { from: 'assistant', text: reply, time: now },
     ]);
+    let reply = assistantReplies[chat.length % assistantReplies.length];
+    if (session?.accessToken && session.accessToken !== 'offline-demo-token') {
+      try {
+        const result = await api.aiChat(session.accessToken, message);
+        reply = result.reply;
+      } catch (error) {
+        reply = error instanceof Error ? error.message : 'AI chat is unavailable right now.';
+      }
+    }
+    setChat((current) => [...current, { from: 'assistant', text: reply, time: now }]);
     addLocalEvent({
       category: 'conversation',
       source: 'manual',

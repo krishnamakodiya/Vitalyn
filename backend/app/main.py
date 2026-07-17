@@ -15,7 +15,7 @@ from starlette.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai_provider import AiNotConfiguredError, AiProviderError, transcribe_audio_with_config
+from app.ai_provider import AiNotConfiguredError, AiProviderError, generate_text_with_config, transcribe_audio_with_config
 from app.auth_service import AuthError, AuthService
 from app.config import Settings, get_settings
 from app.database import get_db_session, init_db
@@ -27,6 +27,8 @@ from app.schemas import (
     DoctorSummaryRead,
     DoctorSummarySection,
     AiAnalysisRead,
+    ChatAnalyze,
+    ChatRead,
     HealthRecordCreate,
     HealthRecordRead,
     PrescriptionAnalyze,
@@ -121,6 +123,14 @@ def prescription_summary(image_name: str, question: str, entities: list[str]) ->
         f"Prototype extraction found: {entity_text}. "
         "Use this to organize questions for a doctor or pharmacist; do not change medicines without professional advice."
     )
+
+
+def split_data_url(data_url: str) -> tuple[str | None, str]:
+    if not data_url.startswith("data:") or "," not in data_url:
+        return None, data_url
+    header, data = data_url.split(",", 1)
+    mime_type = header.removeprefix("data:").split(";", 1)[0] or None
+    return mime_type, data
 
 
 ALLOWED_RECORD_TYPES = {
@@ -386,15 +396,57 @@ async def transcribe_voice_recording(
     )
 
 
+@api_v1.post("/ai/chat", response_model=ChatRead)
+async def ai_chat(
+    payload: ChatAnalyze,
+    user: UserRecord = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+) -> ChatRead:
+    prompt = (
+        "You are Vitalyn, a concise AI health companion. Answer the user's health question "
+        "in plain language. Do not diagnose or prescribe. Suggest safe next steps and when "
+        "to contact a clinician. User message: "
+        f"{payload.message.strip()}"
+    )
+    try:
+        result = generate_text_with_config(settings, prompt=prompt)
+    except AiNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except AiProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ChatRead(reply=result.text, provider=result.provider, model=result.model)
+
+
 @api_v1.post("/ai/prescription-photo", response_model=AiAnalysisRead)
 async def analyze_prescription_photo(
     payload: PrescriptionAnalyze,
     user: UserRecord = Depends(get_current_user),
     service: HealthMemoryService = Depends(get_health_memory_service),
+    settings: Settings = Depends(get_settings),
 ) -> AiAnalysisRead:
     combined_text = f"{payload.image_name} {payload.question}"
     entities = extract_entities(combined_text)
     summary = prescription_summary(payload.image_name, payload.question, entities)
+    mime_type, image_data = split_data_url(payload.image_data)
+    prompt = (
+        "You are Vitalyn. Read this prescription or medicine photo if possible and answer "
+        "the user's question safely. Extract visible medicine names, dosage text, timing, "
+        "and warnings. Do not diagnose, prescribe, or tell the user to change medication. "
+        "End with questions to ask a doctor/pharmacist.\n"
+        f"Image file: {payload.image_name}\n"
+        f"User question: {payload.question}"
+    )
+    try:
+        result = generate_text_with_config(
+            settings,
+            prompt=prompt,
+            image_data=image_data,
+            mime_type=mime_type,
+        )
+        summary = result.text
+        entities = extract_entities(f"{combined_text} {summary}")
+    except (AiNotConfiguredError, AiProviderError):
+        pass
     event = service.create_event(
         user_id=user.id,
         category=MemoryCategory.MEDICAL,

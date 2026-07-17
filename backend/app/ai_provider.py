@@ -28,6 +28,13 @@ class TranscriptionResult:
     model: str
 
 
+@dataclass(frozen=True)
+class TextGenerationResult:
+    text: str
+    provider: str
+    model: str
+
+
 class OpenAiProvider:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -144,6 +151,59 @@ class GeminiProvider:
             content_type=content_type,
             audio_bytes=audio_bytes,
         )
+
+    def generate_text(
+        self,
+        *,
+        prompt: str,
+        image_data: str | None = None,
+        mime_type: str | None = None,
+    ) -> TextGenerationResult:
+        if not self._settings.gemini_api_key:
+            raise AiNotConfiguredError(
+                "Gemini is not configured. Set GEMINI_API_KEY on the backend."
+            )
+        parts: list[dict[str, object]] = [{"text": prompt}]
+        if image_data:
+            parts.append(
+                {
+                    "inline_data": {
+                        "mime_type": mime_type or "image/jpeg",
+                        "data": image_data,
+                    }
+                }
+            )
+        payload = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"temperature": 0.2},
+        }
+        request = Request(
+            (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{self._settings.gemini_model}:generateContent"
+            ),
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={
+                "x-goog-api-key": self._settings.gemini_api_key,
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=60) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace")
+            raise AiProviderError(
+                f"Gemini rejected the request: {self._provider_message(message)}"
+            ) from exc
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise AiProviderError("Gemini provider was not reachable.") from exc
+
+        text = self._extract_text(body)
+        if not text:
+            raise AiProviderError("Gemini returned an empty response.")
+        return TextGenerationResult(text=text, provider="gemini", model=self._settings.gemini_model)
 
     def _transcribe_with_node_sdk(
         self,
@@ -318,3 +378,19 @@ def transcribe_audio_with_config(
     raise AiNotConfiguredError(
         "AI_PROVIDER must be either 'openai' or 'gemini'."
     )
+
+
+def generate_text_with_config(
+    settings: Settings,
+    *,
+    prompt: str,
+    image_data: str | None = None,
+    mime_type: str | None = None,
+) -> TextGenerationResult:
+    if settings.ai_provider == "gemini":
+        return GeminiProvider(settings).generate_text(
+            prompt=prompt,
+            image_data=image_data,
+            mime_type=mime_type,
+        )
+    raise AiNotConfiguredError("Text AI currently requires AI_PROVIDER=gemini.")

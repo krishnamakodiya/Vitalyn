@@ -85,6 +85,16 @@ class PrescriptionAnalyze(BaseModel):
     question: str = Field(min_length=1, max_length=1200)
 
 
+class ChatAnalyze(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class ChatRead(BaseModel):
+    reply: str
+    provider: str
+    model: str
+
+
 class AiAnalysisRead(BaseModel):
     title: str
     summary: str

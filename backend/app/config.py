@@ -18,7 +18,7 @@ class Settings:
     openai_api_key: str | None = None
     openai_transcription_model: str = "gpt-4o-mini-transcribe"
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.5-flash-lite"
+    gemini_model: str = "gemini-3.1-flash-lite"
     cors_origins: tuple[str, ...] = (
         "http://127.0.0.1:5173",
         "http://localhost:5173",

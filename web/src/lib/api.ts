@@ -65,6 +65,12 @@ export type VoiceTranscription = {
   model: string;
 };
 
+export type AiChatReply = {
+  reply: string;
+  provider: string;
+  model: string;
+};
+
 export const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL?.trim() || '/api/v1';
 
@@ -264,6 +270,14 @@ export const api = {
     return request<AiAnalysis>(
       '/ai/voice-journal',
       { method: 'POST', body: JSON.stringify({ transcript }) },
+      token,
+    );
+  },
+
+  aiChat(token: string, message: string): Promise<AiChatReply> {
+    return request<AiChatReply>(
+      '/ai/chat',
+      { method: 'POST', body: JSON.stringify({ message }) },
       token,
     );
   },
