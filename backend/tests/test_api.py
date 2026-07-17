@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 from uuid import uuid4
 
 from app.main import app
@@ -252,6 +253,14 @@ def test_voice_transcription_reports_missing_provider_configuration(monkeypatch)
 def test_voice_transcription_reports_invalid_gemini_key(monkeypatch) -> None:
     monkeypatch.setenv("AI_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "AQ.not-a-google-ai-studio-key")
+    monkeypatch.setattr(
+        "app.ai_provider.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stderr="API_KEY_INVALID",
+            stdout="",
+        ),
+    )
     with TestClient(app) as client:
         auth = register_user(client, "gemini-transcribe-user")
         response = client.post(
@@ -260,8 +269,8 @@ def test_voice_transcription_reports_invalid_gemini_key(monkeypatch) -> None:
             files={"audio": ("note.webm", b"audio-bytes", "audio/webm")},
         )
 
-        assert response.status_code == 503
-        assert "starts with AIza" in response.json()["detail"]
+        assert response.status_code == 502
+        assert "Gemini" in response.json()["detail"]
 
 
 def test_prescription_photo_analysis_creates_medical_memory() -> None:

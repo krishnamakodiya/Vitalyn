@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import base64
+import os
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import uuid4
@@ -129,12 +132,86 @@ class GeminiProvider:
             raise AiNotConfiguredError(
                 "Gemini transcription is not configured. Set GEMINI_API_KEY on the backend."
             )
-        if not self._settings.gemini_api_key.startswith("AIza"):
-            raise AiNotConfiguredError(
-                "GEMINI_API_KEY does not look like a Google AI Studio API key. "
-                "Create a key that starts with AIza, then restart the backend."
+
+        sdk_result = self._transcribe_with_node_sdk(
+            content_type=content_type,
+            audio_bytes=audio_bytes,
+        )
+        if sdk_result is not None:
+            return sdk_result
+
+        return self._transcribe_with_http(
+            content_type=content_type,
+            audio_bytes=audio_bytes,
+        )
+
+    def _transcribe_with_node_sdk(
+        self,
+        *,
+        content_type: str,
+        audio_bytes: bytes,
+    ) -> TranscriptionResult | None:
+        helper_path = Path(__file__).resolve().parents[1] / "scripts" / "gemini_transcribe.mjs"
+        search_roots = [Path.cwd(), *Path.cwd().parents, Path(__file__).resolve().parents[2]]
+        node_modules_path = next(
+            (
+                root / "node_modules" / "@google" / "genai"
+                for root in search_roots
+                if (root / "node_modules" / "@google" / "genai").exists()
+            ),
+            None,
+        )
+        if not helper_path.exists() or not node_modules_path.exists():
+            return None
+
+        env = os.environ.copy()
+        env["GEMINI_API_KEY"] = self._settings.gemini_api_key or ""
+        command = [
+            "node",
+            str(helper_path),
+            self._settings.gemini_model,
+            content_type or "audio/webm",
+            base64.b64encode(audio_bytes).decode("ascii"),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=Path.cwd(),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise AiProviderError("Gemini SDK transcription provider was not reachable.") from exc
+
+        if completed.returncode != 0:
+            message = (completed.stderr or completed.stdout or "").strip()
+            raise AiProviderError(
+                f"Gemini SDK rejected the transcription request: {message}"
             )
 
+        try:
+            body = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise AiProviderError("Gemini SDK returned an invalid response.") from exc
+
+        transcript = str(body.get("transcript") or "").strip()
+        if not transcript:
+            raise AiProviderError("Gemini SDK returned an empty transcript.")
+        return TranscriptionResult(
+            transcript=transcript,
+            provider="gemini",
+            model=self._settings.gemini_model,
+        )
+
+    def _transcribe_with_http(
+        self,
+        *,
+        content_type: str,
+        audio_bytes: bytes,
+    ) -> TranscriptionResult:
         payload = {
             "contents": [
                 {

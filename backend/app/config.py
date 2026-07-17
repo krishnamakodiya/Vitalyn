@@ -37,8 +37,9 @@ def normalize_database_url(database_url: str) -> str:
 
 
 def load_local_env() -> None:
-    env_path = Path.cwd() / ".env"
-    if not env_path.exists():
+    candidates = [Path.cwd(), *Path.cwd().parents, Path(__file__).resolve().parents[2]]
+    env_path = next((path / ".env" for path in candidates if (path / ".env").exists()), None)
+    if env_path is None:
         return
     for raw_line in env_path.read_text().splitlines():
         line = raw_line.strip()
