@@ -120,7 +120,7 @@ def prescription_summary(image_name: str, question: str, entities: list[str]) ->
     return (
         f"Photo '{image_name}' was added for prescription review. "
         f"User question: {question.strip()} "
-        f"Prototype extraction found: {entity_text}. "
+        f"Extraction found: {entity_text}. "
         "Use this to organize questions for a doctor or pharmacist; do not change medicines without professional advice."
     )
 
@@ -156,7 +156,20 @@ def parse_voice_structure(raw: str, transcript: str) -> list[dict[str, object]]:
     }
     for record_type, words in keyword_map.items():
         if any(word in lowered for word in words):
-            fallback.append({"type": record_type, "title": record_type.title(), "details": transcript})
+            match = None
+            if record_type == "sleep":
+                match = __import__("re").search(r"(\d+(?:\.\d+)?)\s*(hours?|hrs?|h)", transcript, __import__("re").I)
+            elif record_type == "water":
+                match = __import__("re").search(r"(\d+(?:\.\d+)?)\s*(liters?|litres?|l|ml)", transcript, __import__("re").I)
+            elif record_type == "activity":
+                match = __import__("re").search(r"(\d+(?:\.\d+)?)\s*(steps?|minutes?|mins?|km|kilometers?)", transcript, __import__("re").I)
+            fallback.append({
+                "type": record_type,
+                "title": record_type.title(),
+                "details": match.group(0) if match else transcript,
+                "value": match.group(1) if match else "",
+                "unit": match.group(2) if match else "",
+            })
     return fallback or [{"type": "insights", "title": "Voice insight", "details": transcript}]
 
 

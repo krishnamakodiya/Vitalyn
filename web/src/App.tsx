@@ -108,7 +108,7 @@ export function App() {
         setError('Session expired. Please log in again.');
         return;
       }
-      setError('Offline demo mode is active. Prototype data is available while the backend reconnects.');
+      setError('Backend connection unavailable. Please retry when the API reconnects.');
     }
   }
 
@@ -138,7 +138,7 @@ export function App() {
       setRecords(demoRecords());
       setChat(initialChat);
       setView('dashboard');
-      setError('Using offline demo mode. Backend login was not reachable.');
+      setError('Using sample workspace. Backend login was not reachable.');
     }
   }
 
@@ -308,11 +308,12 @@ export function App() {
             records={records.prescriptions}
             onAdd={addRecord}
             onEventCreated={(event) => setEvents((current) => [event, ...current])}
+            onReminderCreated={(record) => setRecords((current) => ({ ...current, reminders: [record, ...current.reminders] }))}
           />
         )}
         {view === 'wearables' && <WearablesView records={records.wearables} onAdd={addRecord} />}
         {view === 'doctor' && <DoctorSummaryView events={events} />}
-        {view === 'reminders' && <RemindersView records={records.reminders} onAdd={addRecord} />}
+        {view === 'reminders' && <RemindersView records={records.reminders} onAdd={addRecord} token={session.accessToken} onSaved={(record) => setRecords((current) => ({ ...current, reminders: [record, ...current.reminders] }))} />}
         {view === 'insights' && <InsightsView records={records.insights} onAdd={addRecord} />}
         {view === 'settings' && <SettingsView session={session} />}
       </section>
@@ -339,51 +340,52 @@ function AuthScreen({
 }) {
   return (
     <main className="auth-product">
-      <div className="auth-orb one" />
-      <div className="auth-orb two" />
       <section className="auth-story">
         <Logo />
-        <h1>Vitalyn remembers the whole health story.</h1>
-        <p>
-          A working prototype for health memory, AI journal capture, medication tracking,
-          reports, wearables, doctor summaries, reminders, and insights.
-        </p>
-        <div className="auth-proof">
-          <span>Health timeline</span>
-          <span>Doctor mode</span>
-          <span>AI companion</span>
-        </div>
-        <div className="auth-live-strip">
-          <span>Voice → facts</span>
-          <span>Reports → memory</span>
-          <span>AI → safer questions</span>
+        <h1>Your Health.<br />Remembered.</h1>
+        <p>Vitalyn is your personal AI health companion that remembers your health, understands your patterns, and helps you prepare better questions.</p>
+        <div className="auth-visual" aria-hidden="true">
+          <div className="heart-core">
+            <svg viewBox="0 0 48 48"><path d="M24 40S7 30 7 17.5C7 11.7 11.5 8 16.7 8c3.1 0 5.8 1.5 7.3 4 1.5-2.5 4.2-4 7.3-4C36.5 8 41 11.7 41 17.5 41 30 24 40 24 40Z"/><path d="M12 24h7l3-7 5 14 3-7h6"/></svg>
+          </div>
+          <span className="float-card secure">Secure<br />Private</span>
+          <span className="float-card insights">Health<br />Insights</span>
+          <span className="float-card records">Medical<br />Records</span>
         </div>
       </section>
       <section className="auth-card">
         <div className="section-head horizontal">
           <div>
-            <p className="eyebrow">Prototype access</p>
-            <h2>{mode === 'register' ? 'Create account' : 'Welcome back'}</h2>
+            <h2>{mode === 'register' ? 'Create Account' : 'Welcome Back'}</h2>
+            <p>{mode === 'register' ? 'Start your health journey' : 'Log in to continue your health journey'}</p>
           </div>
           <button className="icon-btn" onClick={onToggleTheme} aria-label="Toggle theme">
             {darkMode ? 'L' : 'D'}
           </button>
         </div>
-        <div className="switcher">
-          <button className={mode === 'login' ? 'active' : ''} onClick={() => onModeChange('login')}>Login</button>
-          <button className={mode === 'register' ? 'active' : ''} onClick={() => onModeChange('register')}>Register</button>
-        </div>
         <form className="form-stack" onSubmit={onSubmit}>
           {mode === 'register' && (
             <label>Display name<input name="displayName" placeholder="Your name" required /></label>
           )}
-          <label>Email<input name="email" type="email" placeholder="you@example.com" required /></label>
-          <label>Password<input name="password" type="password" placeholder={mode === 'register' ? 'At least 8 characters' : 'Your password'} minLength={mode === 'register' ? 8 : 1} required /></label>
+          <label>Email<input name="email" type="email" placeholder="Enter your email" required /></label>
+          <label>Password<input name="password" type="password" placeholder={mode === 'register' ? 'At least 8 characters' : 'Enter your password'} minLength={mode === 'register' ? 8 : 1} required /></label>
           {error && <div className="status-banner danger">{error}</div>}
-          <button className="primary-btn">{mode === 'register' ? 'Create account' : 'Login'}</button>
-          <button className="secondary-btn" type="button" onClick={onDemo}>Open Sunny demo workspace</button>
+          <button className="primary-btn">{mode === 'register' ? 'Create Account' : 'Log In'}</button>
+          <div className="auth-divider"><span>or</span></div>
+          <button className="secondary-btn" type="button" onClick={onDemo}>Open sample workspace</button>
+          <p className="auth-mode-link">
+            {mode === 'register' ? 'Already have an account?' : "Don't have an account?"}
+            <button type="button" onClick={() => onModeChange(mode === 'register' ? 'login' : 'register')}>
+              {mode === 'register' ? 'Log in' : 'Sign up'}
+            </button>
+          </p>
         </form>
       </section>
+      <footer className="auth-footer">
+        <span>Your health data is private and secure.</span>
+        <span>Privacy Policy</span>
+        <span>Terms of Service</span>
+      </footer>
     </main>
   );
 }
@@ -401,9 +403,8 @@ function Sidebar({ activeView, onViewChange }: { activeView: View; onViewChange:
         ))}
       </nav>
       <div className="premium-card">
-        <strong>Upgrade to Premium</strong>
-        <p>Unlock advanced insights and AI health analysis.</p>
-        <button>Upgrade Now</button>
+        <strong>Private health memory</strong>
+        <p>Your records stay organized and ready for review.</p>
       </div>
     </aside>
   );
@@ -412,7 +413,9 @@ function Sidebar({ activeView, onViewChange }: { activeView: View; onViewChange:
 function Logo() {
   return (
     <div className="logo">
-      <div className="logo-mark">♡</div>
+      <div className="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48"><path d="M24 40S7 30 7 17.5C7 11.7 11.5 8 16.7 8c3.1 0 5.8 1.5 7.3 4 1.5-2.5 4.2-4 7.3-4C36.5 8 41 11.7 41 17.5 41 30 24 40 24 40Z"/><path d="M12 24h7l3-7 5 14 3-7h6"/></svg>
+      </div>
       <div>
         <strong>Vitalyn</strong>
         <span>AI Health Companion</span>
@@ -484,20 +487,22 @@ function Dashboard({
       <section className="dashboard-grid">
         <AssistantCard displayName={displayName} onSend={onSendChat} compact />
         <OverviewChart isDemo={isDemo} />
-        <ReminderCard records={records.reminders} />
-        <RecentLogs events={events} onViewAll={() => onViewChange('timeline')} />
+        <div className="dashboard-stack">
+          <ReminderCard records={records.reminders} />
+          <RecentLogs events={events} onViewAll={() => onViewChange('timeline')} />
+        </div>
         <LatestReports records={records.reports} onViewAll={() => onViewChange('reports')} />
-        <HealthInsights records={records.insights} />
-      </section>
-      <section className="doctor-hero">
-        <div>
-          <h2>One-Tap Doctor Summary</h2>
-          <p>Generate your complete health summary and share facts with your doctor before consultation.</p>
-          <button className="primary-btn" onClick={() => onViewChange('doctor')}>Generate Summary</button>
+        <div className="doctor-hero">
+          <div>
+            <h2>One-Tap Doctor Summary</h2>
+            <p>Generate your complete health summary and share facts with your doctor before consultation.</p>
+            <button className="primary-btn" onClick={() => onViewChange('doctor')}>Generate Summary</button>
+          </div>
+          <div className="summary-visual">
+            <span>Medical History</span><span>Reports</span><span>Medications</span><span>Symptoms</span><span>Allergies</span><span>Lifestyle</span>
+          </div>
         </div>
-        <div className="summary-visual">
-          <span>Medical History</span><span>Reports</span><span>Medications</span><span>Symptoms</span><span>Allergies</span><span>Lifestyle</span>
-        </div>
+        <HealthInsights records={[...records.insights, ...records.symptoms]} />
       </section>
     </div>
   );
@@ -536,7 +541,7 @@ function FreshMetricCard({ metric }: { metric: (typeof freshMetrics)[number] }) 
           <p>{metric.label}</p>
           <strong>{metric.value || '--'} <small>{metric.unit || 'No data'}</small></strong>
         </div>
-        <em>{metric.status || 'Fresh'}</em>
+        <em>{metric.status || 'Ready'}</em>
       </div>
       <div className="notice">{metric.action}</div>
     </article>
@@ -545,13 +550,25 @@ function FreshMetricCard({ metric }: { metric: (typeof freshMetrics)[number] }) 
 
 function dashboardMetrics(records: Record<RecordType, HealthRecord[]>): typeof freshMetrics {
   const latest = (type: RecordType) => records[type]?.[0];
+  const metricValue = (record?: HealthRecord, fallback = 'Logged') => {
+    if (!record) return { value: '--', unit: 'Awaiting entry' };
+    const value = typeof record.metadata.value === 'string' ? record.metadata.value : '';
+    const unit = typeof record.metadata.unit === 'string' ? record.metadata.unit : '';
+    const match = `${record.title} ${record.details}`.match(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|liters?|litres?|l|ml|minutes?|mins?|steps?|km|kilometers?)/i);
+    if (value) return { value, unit: unit || record.title };
+    if (match) return { value: match[1], unit: match[2] };
+    return { value: fallback, unit: record.title };
+  };
+  const sleep = metricValue(latest('sleep'));
+  const water = metricValue(latest('water'));
+  const activity = metricValue(latest('activity'));
   const score = Math.min(100, 50 + ['food', 'sleep', 'water', 'activity', 'symptoms', 'medications'].filter((type) => records[type as RecordType].length).length * 8);
   return [
-    { label: 'Health Score', value: String(score), unit: '/100', status: records.insights.length || records.symptoms.length ? 'Updated' : 'Fresh', action: `${records.insights.length + records.symptoms.length} AI insights/symptoms logged.` },
-    { label: 'Food', value: latest('food') ? 'Logged' : '--', unit: latest('food')?.title || 'No data', status: latest('food') ? 'AI' : 'Fresh', action: latest('food')?.details || 'Record meals by voice.' },
-    { label: 'Sleep', value: latest('sleep') ? 'Logged' : '--', unit: latest('sleep')?.title || 'No data', status: latest('sleep') ? 'AI' : 'Fresh', action: latest('sleep')?.details || 'Record sleep by voice.' },
-    { label: 'Water Intake', value: latest('water') ? 'Logged' : '--', unit: latest('water')?.title || 'No data', status: latest('water') ? 'AI' : 'Fresh', action: latest('water')?.details || 'Log hydration by voice.' },
-    { label: 'Activity', value: latest('activity') ? 'Logged' : '--', unit: latest('activity')?.title || 'No data', status: latest('activity') ? 'AI' : 'Fresh', action: latest('activity')?.details || 'Log walks/workouts by voice.' },
+    { label: 'Health Score', value: String(score), unit: '/100', status: records.insights.length || records.symptoms.length ? 'Updated' : 'Ready', action: `${records.insights.length + records.symptoms.length} health insights/symptoms logged.` },
+    { label: 'Steps', value: activity.value, unit: activity.unit, status: latest('activity') ? 'Logged' : 'Ready', action: latest('activity')?.details || 'Log walks/workouts by voice.' },
+    { label: 'Sleep', value: sleep.value, unit: sleep.unit, status: latest('sleep') ? 'Logged' : 'Ready', action: latest('sleep')?.details || 'Record sleep by voice.' },
+    { label: 'Water Intake', value: water.value, unit: water.unit, status: latest('water') ? 'Logged' : 'Ready', action: latest('water')?.details || 'Log hydration by voice.' },
+    { label: 'Food', value: latest('food') ? 'Logged' : '--', unit: latest('food')?.title || 'Awaiting entry', status: latest('food') ? 'Logged' : 'Ready', action: latest('food')?.details || 'Record meals by voice.' },
   ];
 }
 
@@ -616,7 +633,23 @@ function ReminderCard({ records }: { records: HealthRecord[] }) {
     <article className="panel">
       <div className="section-head horizontal"><h2>Upcoming Reminders</h2><button className="ghost-btn">View All</button></div>
       <div className="list-stack">
-        {records.length === 0 ? <EmptyState text="No reminders yet." /> : records.slice(0, 4).map((item) => <RowItem key={item.id} title={item.title} detail={item.details} meta={new Date(item.occurred_at).toLocaleString()} />)}
+        {records.length === 0 ? <EmptyState text="No reminders yet." /> : records.slice(0, 4).map((item) => <RowItem key={item.id} title={item.title} detail={item.details} meta={String(item.metadata.time || new Date(item.occurred_at).toLocaleString())} />)}
+      </div>
+    </article>
+  );
+}
+
+function SymptomsCard({ records }: { records: HealthRecord[] }) {
+  const [openId, setOpenId] = useState('');
+  return (
+    <article className="panel">
+      <div className="section-head horizontal"><h2>Symptoms</h2></div>
+      <div className="list-stack">
+        {records.length === 0 ? <EmptyState text="No symptoms logged yet." /> : records.slice(0, 5).map((item) => (
+          <button className="row-button" key={item.id} onClick={() => setOpenId(openId === item.id ? '' : item.id)}>
+            <RowItem title={item.title} detail={openId === item.id ? item.details : new Date(item.occurred_at).toLocaleString()} meta={openId === item.id ? 'Hide' : 'Open'} />
+          </button>
+        ))}
       </div>
     </article>
   );
@@ -782,7 +815,7 @@ function JournalView({
           title: 'Voice health journal',
           summary: `Voice journal transcript: ${transcript}`,
           extracted_entities: extractEntities(transcript),
-          safety_note: 'Prototype offline mode saved this as a timeline memory. Vitalyn does not diagnose.',
+          safety_note: 'Sample mode saved this as a timeline memory. Vitalyn does not diagnose.',
           created_event: demoTimeline()[0],
           structured_records: [],
         });
@@ -949,11 +982,13 @@ function PrescriptionsView({
   records,
   onAdd,
   onEventCreated,
+  onReminderCreated,
 }: {
   token: string;
   records: HealthRecord[];
   onAdd: (recordType: RecordType, title: string, details: string) => void;
   onEventCreated: (event: TimelineEvent) => void;
+  onReminderCreated: (record: HealthRecord) => void;
 }) {
   const [imageName, setImageName] = useState('');
   const [imageData, setImageData] = useState('');
@@ -978,7 +1013,7 @@ function PrescriptionsView({
       if (token === 'offline-demo-token') {
         setAnalysis({
           title: 'Prescription photo question',
-          summary: `Photo '${imageName}' added. Question: ${question}. Prototype found Vitamin D / Omega style medication context. Confirm dosage and timing with a clinician or pharmacist.`,
+          summary: `Photo '${imageName}' added. Question: ${question}. Confirm dosage and timing with a clinician or pharmacist.`,
           extracted_entities: ['vitamin', 'tablet', 'medicine'],
           safety_note: 'This is not a diagnosis or prescription. Confirm medicines with a licensed professional.',
           created_event: demoTimeline()[4],
@@ -988,6 +1023,11 @@ function PrescriptionsView({
         const result = await api.analyzePrescriptionPhoto(token, { imageName, imageData, question });
         setAnalysis(result);
         onEventCreated(result.created_event);
+        onReminderCreated(await api.createRecord(token, 'reminders', {
+          title: `Review ${imageName || 'prescription'}`,
+          details: 'Confirm medicine, dosage, and timing with doctor/pharmacist.',
+          metadata: { time: '09:00', source: 'prescription_upload' },
+        }));
       }
       setStatus('Saved prescription question to medical memory.');
     } catch (error) {
@@ -1022,8 +1062,32 @@ function WearablesView({ records, onAdd }: { records: HealthRecord[]; onAdd: (re
   return <CollectionView eyebrow="Wearables" title="Connected health signals" recordType="wearables" records={records} onAdd={onAdd} />;
 }
 
-function RemindersView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
-  return <CollectionView eyebrow="Reminders" title="Care tasks" recordType="reminders" records={records} onAdd={onAdd} />;
+function RemindersView({ records, onAdd, token, onSaved }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void; token: string; onSaved: (record: HealthRecord) => void }) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const title = String(form.get('title'));
+    const details = String(form.get('details'));
+    const time = String(form.get('time'));
+    if (token === 'offline-demo-token') onAdd('reminders', title, `${details} • ${time}`);
+    else onSaved(await api.createRecord(token, 'reminders', { title, details, metadata: { time } }));
+    event.currentTarget.reset();
+  }
+  return (
+    <article className="panel">
+      <p className="eyebrow">Reminders</p>
+      <h2>Care tasks</h2>
+      <form className="inline-add-form" onSubmit={submit}>
+        <input name="title" required placeholder="Reminder title" />
+        <input name="details" required placeholder="Details" />
+        <input name="time" type="time" required />
+        <button className="primary-btn">Add</button>
+      </form>
+      <div className="collection-grid">
+        {records.length === 0 ? <EmptyState text="No reminders saved yet." /> : records.map((item) => <RowItem key={item.id} title={item.title} detail={item.details} meta={String(item.metadata.time || new Date(item.occurred_at).toLocaleDateString())} />)}
+      </div>
+    </article>
+  );
 }
 
 function InsightsView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
