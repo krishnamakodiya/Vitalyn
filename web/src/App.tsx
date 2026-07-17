@@ -57,9 +57,9 @@ export function App() {
   const [session, setSession] = useState<Session | null>(() => loadSession());
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [view, setView] = useState<View>('dashboard');
-  const [events, setEvents] = useState<TimelineEvent[]>(() => demoTimeline());
-  const [records, setRecords] = useState<Record<RecordType, HealthRecord[]>>(() => initialRecords());
-  const [chat, setChat] = useState<ChatMessage[]>(initialChat);
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [records, setRecords] = useState<Record<RecordType, HealthRecord[]>>(() => emptyRecords());
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [error, setError] = useState('');
   const [darkMode, setDarkMode] = useState(false);
 
@@ -68,22 +68,36 @@ export function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session) {
+      setEvents([]);
+      setRecords(emptyRecords());
+      setChat([]);
+      return;
+    }
+    if (isDemoSession(session)) {
+      setEvents(demoTimeline());
+      setRecords(demoRecords());
+      setChat(initialChat);
+      return;
+    }
+    setEvents([]);
+    setRecords(emptyRecords());
+    setChat([]);
     void refreshBackendMemory(session.accessToken);
   }, [session]);
 
   async function refreshBackendMemory(token: string) {
     try {
       const remoteEvents = await api.listTimeline(token);
-      if (remoteEvents.length > 0) setEvents(mergeEvents(remoteEvents, demoTimeline()));
+      setEvents(remoteEvents);
       const recordTypes: RecordType[] = ['medications', 'reports', 'prescriptions', 'wearables', 'reminders', 'insights'];
       const recordEntries = await Promise.all(
         recordTypes.map(async (recordType) => [recordType, await api.listRecords(token, recordType)] as const),
       );
-      setRecords((current) => {
-        const next = { ...current };
+      setRecords(() => {
+        const next = emptyRecords();
         for (const [recordType, items] of recordEntries) {
-          if (items.length > 0) next[recordType] = items;
+          next[recordType] = items;
         }
         return next;
       });
@@ -104,6 +118,9 @@ export function App() {
       }
       saveSession(nextSession);
       setSession(nextSession);
+      setEvents(demoTimeline());
+      setRecords(demoRecords());
+      setChat(initialChat);
       setView('dashboard');
     } catch {
       const fallback: Session = {
@@ -112,6 +129,9 @@ export function App() {
       };
       saveSession(fallback);
       setSession(fallback);
+      setEvents(demoTimeline());
+      setRecords(demoRecords());
+      setChat(initialChat);
       setView('dashboard');
       setError('Using offline demo mode. Backend login was not reachable.');
     }
@@ -137,6 +157,9 @@ export function App() {
           : await api.login(email, password);
       saveSession(nextSession);
       setSession(nextSession);
+      setEvents([]);
+      setRecords(emptyRecords());
+      setChat([]);
       setView('dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to continue.');
@@ -239,7 +262,7 @@ export function App() {
       <section className="main-stage">
         <TopBar session={session} darkMode={darkMode} onToggleTheme={() => setDarkMode((value) => !value)} onSignOut={signOut} />
         {error && <div className="status-banner">{error}</div>}
-        {view === 'dashboard' && <Dashboard displayName={session.user.displayName} events={events} onViewChange={setView} onSendChat={sendChat} />}
+        {view === 'dashboard' && <Dashboard displayName={session.user.displayName} events={events} records={records} onViewChange={setView} onSendChat={sendChat} />}
         {view === 'chat' && <ChatView displayName={session.user.displayName} chat={chat} onSend={sendChat} />}
         {view === 'journal' && (
           <JournalView
@@ -397,11 +420,13 @@ function TopBar({
 function Dashboard({
   displayName,
   events,
+  records,
   onViewChange,
   onSendChat,
 }: {
   displayName: string;
   events: TimelineEvent[];
+  records: Record<RecordType, HealthRecord[]>;
   onViewChange: (view: View) => void;
   onSendChat: (message: string) => void;
 }) {
@@ -420,10 +445,10 @@ function Dashboard({
       <section className="dashboard-grid">
         <AssistantCard displayName={displayName} onSend={onSendChat} compact />
         <OverviewChart />
-        <ReminderCard />
+        <ReminderCard records={records.reminders} />
         <RecentLogs events={events} onViewAll={() => onViewChange('timeline')} />
-        <LatestReports onViewAll={() => onViewChange('reports')} />
-        <HealthInsights />
+        <LatestReports records={records.reports} onViewAll={() => onViewChange('reports')} />
+        <HealthInsights records={records.insights} />
       </section>
       <section className="doctor-hero">
         <div>
@@ -505,12 +530,12 @@ function AssistantCard({ displayName, onSend, compact = false }: { displayName?:
   );
 }
 
-function ReminderCard() {
+function ReminderCard({ records }: { records: HealthRecord[] }) {
   return (
     <article className="panel">
       <div className="section-head horizontal"><h2>Upcoming Reminders</h2><button className="ghost-btn">View All</button></div>
       <div className="list-stack">
-        {reminders.map((item) => <RowItem key={item.title} title={item.title} detail={item.detail} meta={item.time} status={item.done ? 'Done' : 'Open'} />)}
+        {records.length === 0 ? <EmptyState text="No reminders yet." /> : records.slice(0, 4).map((item) => <RowItem key={item.id} title={item.title} detail={item.details} meta={new Date(item.occurred_at).toLocaleString()} />)}
       </div>
     </article>
   );
@@ -520,26 +545,26 @@ function RecentLogs({ events, onViewAll }: { events: TimelineEvent[]; onViewAll:
   return (
     <article className="panel">
       <div className="section-head horizontal"><h2>Recent Logs</h2><button className="ghost-btn" onClick={onViewAll}>View All</button></div>
-      <div className="list-stack">{events.slice(0, 4).map((event) => <RowItem key={event.id} title={event.title} detail={new Date(event.occurred_at).toLocaleString()} meta={categoryLabel(event.category)} />)}</div>
+      <div className="list-stack">{events.length === 0 ? <EmptyState text="No health memories yet." /> : events.slice(0, 4).map((event) => <RowItem key={event.id} title={event.title} detail={new Date(event.occurred_at).toLocaleString()} meta={categoryLabel(event.category)} />)}</div>
     </article>
   );
 }
 
-function LatestReports({ onViewAll }: { onViewAll: () => void }) {
+function LatestReports({ records, onViewAll }: { records: HealthRecord[]; onViewAll: () => void }) {
   return (
     <article className="panel">
       <div className="section-head horizontal"><h2>Latest Reports</h2><button className="ghost-btn" onClick={onViewAll}>View All</button></div>
-      <div className="list-stack">{reports.map((report) => <RowItem key={report.title} title={report.title} detail={report.date} meta={report.type} />)}</div>
+      <div className="list-stack">{records.length === 0 ? <EmptyState text="No reports uploaded yet." /> : records.slice(0, 4).map((record) => <RowItem key={record.id} title={record.title} detail={record.details} meta={new Date(record.occurred_at).toLocaleDateString()} />)}</div>
     </article>
   );
 }
 
-function HealthInsights() {
+function HealthInsights({ records }: { records: HealthRecord[] }) {
   return (
     <article className="panel insight-card">
       <p className="eyebrow">Health Insights</p>
       <h2>This month</h2>
-      {insights.slice(0, 3).map((item) => <p key={item}>✓ {item}</p>)}
+      {records.length === 0 ? <p>Add health memories to generate insights.</p> : records.slice(0, 3).map((item) => <p key={item.id}>✓ {item.details}</p>)}
       <div className="score-ring"><strong>85%</strong><span>Consistency Score</span></div>
     </article>
   );
@@ -551,7 +576,7 @@ function ChatView({ displayName, chat, onSend }: { displayName: string; chat: Ch
       <article className="panel chat-thread">
         <p className="eyebrow">AI Health Chat</p>
         <h2>Personal health companion</h2>
-        {chat.map((message, index) => <div key={`${message.time}-${index}`} className={`message ${message.from}`}>{message.text}<time>{message.time}</time></div>)}
+        {chat.length === 0 ? <EmptyState text="No chat messages yet." /> : chat.map((message, index) => <div key={`${message.time}-${index}`} className={`message ${message.from}`}>{message.text}<time>{message.time}</time></div>)}
       </article>
       <AssistantCard displayName={displayName} onSend={onSend} />
     </section>
@@ -726,7 +751,7 @@ function TimelineView({ events }: { events: TimelineEvent[] }) {
     <article className="panel">
       <p className="eyebrow">Timeline</p>
       <h2>Chronological health memory</h2>
-      <div className="timeline-list">{events.map((event) => <TimelineEventRow key={event.id} event={event} />)}</div>
+      <div className="timeline-list">{events.length === 0 ? <EmptyState text="No timeline events yet. Add one from Health Journal." /> : events.map((event) => <TimelineEventRow key={event.id} event={event} />)}</div>
     </article>
   );
 }
@@ -898,7 +923,7 @@ function CollectionView({
         <button className="primary-btn">Add</button>
       </form>
       <div className="collection-grid">
-        {records.map((item) => (
+        {records.length === 0 ? <EmptyState text={`No ${recordType.replaceAll('_', ' ')} saved yet.`} /> : records.map((item) => (
           <RowItem key={item.id} title={item.title} detail={item.details} meta={new Date(item.occurred_at).toLocaleDateString()} />
         ))}
       </div>
@@ -932,6 +957,10 @@ function RowItem({ title, detail, meta, status }: { title: string; detail: strin
   );
 }
 
+function EmptyState({ text }: { text: string }) {
+  return <div className="notice">{text}</div>;
+}
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -941,7 +970,18 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-function initialRecords(): Record<RecordType, HealthRecord[]> {
+function emptyRecords(): Record<RecordType, HealthRecord[]> {
+  return {
+    medications: [],
+    reports: [],
+    prescriptions: [],
+    wearables: [],
+    reminders: [],
+    insights: [],
+  };
+}
+
+function demoRecords(): Record<RecordType, HealthRecord[]> {
   return {
     medications: medications.map((item) =>
       recordFromSeed('medications', item.name, `${item.dose} • ${item.schedule} • ${item.status}`),
@@ -962,6 +1002,10 @@ function initialRecords(): Record<RecordType, HealthRecord[]> {
       recordFromSeed('insights', `Insight ${index + 1}`, item),
     ),
   };
+}
+
+function isDemoSession(session: Session): boolean {
+  return session.accessToken === 'offline-demo-token' || session.user.email === demoUser.email;
 }
 
 function recordFromSeed(recordType: RecordType, title: string, details: string): HealthRecord {
@@ -1000,13 +1044,6 @@ function groupEvents(events: TimelineEvent[]) {
     groups[event.category].push(event);
     return groups;
   }, {});
-}
-
-function mergeEvents(primary: TimelineEvent[], fallback: TimelineEvent[]) {
-  const ids = new Set(primary.map((event) => event.id));
-  return [...primary, ...fallback.filter((event) => !ids.has(event.id))].sort(
-    (a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime(),
-  );
 }
 
 function extractEntities(message: string) {

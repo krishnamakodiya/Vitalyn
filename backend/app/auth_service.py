@@ -24,8 +24,8 @@ class AuthService:
         name = display_name.strip()
         if not EMAIL_PATTERN.match(normalized_email):
             raise AuthError("valid email is required")
-        if len(password) < 12:
-            raise AuthError("password must be at least 12 characters")
+        if len(password) < 8:
+            raise AuthError("password must be at least 8 characters")
         if not name:
             raise AuthError("display name is required")
         try:

@@ -59,7 +59,7 @@ export type HealthRecord = {
   archived_at: string | null;
 };
 
-const apiBaseUrl =
+export const apiBaseUrl =
   import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
 
 async function request<T>(
@@ -83,12 +83,27 @@ async function request<T>(
     );
   }
 
-  const body = await response.json().catch(() => null);
+  const contentType = response.headers.get('content-type') ?? '';
+  const body = contentType.includes('application/json')
+    ? await response.json().catch(() => null)
+    : await response.text().catch(() => '');
   if (!response.ok) {
-    const detail =
-      body && typeof body.detail === 'string'
-        ? body.detail
-        : 'Request failed. Please try again.';
+    let detail = `Request failed (${response.status}) at ${apiBaseUrl}${path}.`;
+    if (body && typeof body === 'object' && 'detail' in body) {
+      const apiDetail = body.detail;
+      if (typeof apiDetail === 'string') {
+        detail = apiDetail;
+      } else if (Array.isArray(apiDetail)) {
+        detail = apiDetail
+          .map((item) => {
+            if (item && typeof item === 'object' && 'msg' in item) return String(item.msg);
+            return String(item);
+          })
+          .join(' ');
+      }
+    } else if (typeof body === 'string' && body.trim()) {
+      detail = `Request failed (${response.status}) at ${apiBaseUrl}${path}. The API did not return JSON.`;
+    }
     throw new Error(detail);
   }
   return body as T;
@@ -110,6 +125,10 @@ function normalizeSession(body: {
 }
 
 export const api = {
+  health(): Promise<{ status: string }> {
+    return request<{ status: string }>('/health');
+  },
+
   async register(email: string, password: string, displayName: string): Promise<Session> {
     const body = await request<{
       access_token: string;
