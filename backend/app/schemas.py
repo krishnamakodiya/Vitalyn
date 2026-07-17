@@ -101,6 +101,7 @@ class AiAnalysisRead(BaseModel):
     extracted_entities: list[str]
     safety_note: str
     created_event: TimelineEventRead
+    structured_records: list[HealthRecordRead] = Field(default_factory=list)
 
 
 class HealthRecordCreate(BaseModel):

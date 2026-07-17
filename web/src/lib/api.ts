@@ -46,6 +46,7 @@ export type AiAnalysis = {
   extracted_entities: string[];
   safety_note: string;
   created_event: TimelineEvent;
+  structured_records: HealthRecord[];
 };
 
 export type HealthRecord = {

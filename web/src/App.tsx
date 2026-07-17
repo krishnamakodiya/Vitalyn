@@ -31,7 +31,7 @@ type View =
   | 'insights'
   | 'settings';
 
-type RecordType = 'medications' | 'reports' | 'prescriptions' | 'wearables' | 'reminders' | 'insights';
+type RecordType = 'medications' | 'reports' | 'prescriptions' | 'wearables' | 'reminders' | 'insights' | 'food' | 'sleep' | 'water' | 'activity' | 'symptoms' | 'vitals';
 
 type AuthMode = 'login' | 'register';
 
@@ -90,7 +90,7 @@ export function App() {
     try {
       const remoteEvents = await api.listTimeline(token);
       setEvents(remoteEvents);
-      const recordTypes: RecordType[] = ['medications', 'reports', 'prescriptions', 'wearables', 'reminders', 'insights'];
+      const recordTypes: RecordType[] = ['medications', 'reports', 'prescriptions', 'wearables', 'reminders', 'insights', 'food', 'sleep', 'water', 'activity', 'symptoms', 'vitals'];
       const recordEntries = await Promise.all(
         recordTypes.map(async (recordType) => [recordType, await api.listRecords(token, recordType)] as const),
       );
@@ -287,11 +287,21 @@ export function App() {
             token={session.accessToken}
             onCreate={addLocalEvent}
             onEventCreated={(event) => setEvents((current) => [event, ...current])}
+            onRecordsCreated={(createdRecords) => {
+              setRecords((current) => {
+                const next = { ...current };
+                for (const record of createdRecords) {
+                  const type = record.record_type as RecordType;
+                  if (type in next) next[type] = [record, ...next[type]];
+                }
+                return next;
+              });
+            }}
           />
         )}
         {view === 'timeline' && <TimelineView events={events} />}
         {view === 'medications' && <MedicationsView records={records.medications} onAdd={addRecord} />}
-        {view === 'reports' && <ReportsView records={records.reports} onAdd={addRecord} />}
+        {view === 'reports' && <ReportsView records={records.reports} onAdd={addRecord} token={session.accessToken} onSaved={(record) => setRecords((current) => ({ ...current, reports: [record, ...current.reports] }))} />}
         {view === 'prescriptions' && (
           <PrescriptionsView
             token={session.accessToken}
@@ -462,7 +472,7 @@ function Dashboard({
         <button className="outline-btn" onClick={() => onViewChange('chat')}>AI Health Chat</button>
       </div>
       <section className="metric-grid">
-        {isDemo ? metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />) : freshMetrics.map((metric) => <FreshMetricCard key={metric.label} metric={metric} />)}
+        {isDemo ? metrics.map((metric) => <MetricCard key={metric.label} metric={metric} />) : dashboardMetrics(records).map((metric) => <FreshMetricCard key={metric.label} metric={metric} />)}
       </section>
       <section className="dashboard-grid">
         <AssistantCard displayName={displayName} onSend={onSendChat} compact />
@@ -502,7 +512,7 @@ function MetricCard({ metric }: { metric: (typeof metrics)[number] }) {
   );
 }
 
-const freshMetrics = [
+const freshMetrics: Array<{ label: string; action: string; value?: string; unit?: string; status?: string }> = [
   { label: 'Health Score', action: 'Add health memories to calculate score.' },
   { label: 'Steps', action: 'Connect a wearable or add steps manually.' },
   { label: 'Sleep', action: 'Record sleep from the journal or wearable.' },
@@ -517,13 +527,25 @@ function FreshMetricCard({ metric }: { metric: (typeof freshMetrics)[number] }) 
         <span className="metric-icon">{metric.label.slice(0, 1)}</span>
         <div>
           <p>{metric.label}</p>
-          <strong>-- <small>No data</small></strong>
+          <strong>{metric.value || '--'} <small>{metric.unit || 'No data'}</small></strong>
         </div>
-        <em>Fresh</em>
+        <em>{metric.status || 'Fresh'}</em>
       </div>
       <div className="notice">{metric.action}</div>
     </article>
   );
+}
+
+function dashboardMetrics(records: Record<RecordType, HealthRecord[]>): typeof freshMetrics {
+  const latest = (type: RecordType) => records[type]?.[0];
+  const score = Math.min(100, 50 + ['food', 'sleep', 'water', 'activity', 'symptoms', 'medications'].filter((type) => records[type as RecordType].length).length * 8);
+  return [
+    { label: 'Health Score', value: String(score), unit: '/100', status: records.insights.length || records.symptoms.length ? 'Updated' : 'Fresh', action: `${records.insights.length + records.symptoms.length} AI insights/symptoms logged.` },
+    { label: 'Food', value: latest('food') ? 'Logged' : '--', unit: latest('food')?.title || 'No data', status: latest('food') ? 'AI' : 'Fresh', action: latest('food')?.details || 'Record meals by voice.' },
+    { label: 'Sleep', value: latest('sleep') ? 'Logged' : '--', unit: latest('sleep')?.title || 'No data', status: latest('sleep') ? 'AI' : 'Fresh', action: latest('sleep')?.details || 'Record sleep by voice.' },
+    { label: 'Water Intake', value: latest('water') ? 'Logged' : '--', unit: latest('water')?.title || 'No data', status: latest('water') ? 'AI' : 'Fresh', action: latest('water')?.details || 'Log hydration by voice.' },
+    { label: 'Activity', value: latest('activity') ? 'Logged' : '--', unit: latest('activity')?.title || 'No data', status: latest('activity') ? 'AI' : 'Fresh', action: latest('activity')?.details || 'Log walks/workouts by voice.' },
+  ];
 }
 
 function Sparkline({ values, color }: { values: number[]; color: string }) {
@@ -639,10 +661,12 @@ function JournalView({
   token,
   onCreate,
   onEventCreated,
+  onRecordsCreated,
 }: {
   token: string;
   onCreate: (input: { category: MemoryCategory; source: EventSource; title: string; details: string; linkedEntities: string[] }) => void;
   onEventCreated: (event: TimelineEvent) => void;
+  onRecordsCreated: (records: HealthRecord[]) => void;
 }) {
   const [transcript, setTranscript] = useState('');
   const [voiceStatus, setVoiceStatus] = useState('Ready to record');
@@ -753,11 +777,13 @@ function JournalView({
           extracted_entities: extractEntities(transcript),
           safety_note: 'Prototype offline mode saved this as a timeline memory. Vitalyn does not diagnose.',
           created_event: demoTimeline()[0],
+          structured_records: [],
         });
       } else {
         const result = await api.analyzeVoiceJournal(token, transcript);
         setAnalysis(result);
         onEventCreated(result.created_event);
+        if (result.structured_records?.length) onRecordsCreated(result.structured_records);
       }
       setVoiceStatus('Saved to health memory.');
       setTranscript('');
@@ -841,8 +867,74 @@ function MedicationsView({ records, onAdd }: { records: HealthRecord[]; onAdd: (
   return <CollectionView eyebrow="Medications" title="Medication memory" recordType="medications" records={records} onAdd={onAdd} />;
 }
 
-function ReportsView({ records, onAdd }: { records: HealthRecord[]; onAdd: (recordType: RecordType, title: string, details: string) => void }) {
-  return <CollectionView eyebrow="Reports" title="Medical reports" recordType="reports" records={records} onAdd={onAdd} />;
+function ReportsView({
+  records,
+  onAdd,
+  token,
+  onSaved,
+}: {
+  records: HealthRecord[];
+  onAdd: (recordType: RecordType, title: string, details: string) => void;
+  token: string;
+  onSaved: (record: HealthRecord) => void;
+}) {
+  const [fileName, setFileName] = useState('');
+  const [fileData, setFileData] = useState('');
+  const [status, setStatus] = useState('');
+
+  async function handleFile(file: File | null) {
+    if (!file) return;
+    setFileName(file.name);
+    setFileData(await fileToDataUrl(file));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const title = String(form.get('title') || fileName || 'Medical report');
+    const details = String(form.get('details') || `Uploaded file: ${fileName}`);
+    if (!fileData) {
+      onAdd('reports', title, details);
+      event.currentTarget.reset();
+      return;
+    }
+    try {
+      const saved = await api.createRecord(token, 'reports', {
+        title,
+        details,
+        metadata: { fileName, fileData, source: 'report_upload' },
+      });
+      onSaved(saved);
+      setStatus('Report uploaded and added to dashboard.');
+      setFileName('');
+      setFileData('');
+      event.currentTarget.reset();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Unable to upload report.');
+    }
+  }
+
+  return (
+    <article className="panel">
+      <p className="eyebrow">Reports</p>
+      <h2>Medical reports</h2>
+      <form className="form-stack" onSubmit={submit}>
+        <input name="title" required placeholder="Custom report name" />
+        <input name="details" placeholder="Notes, lab type, doctor, date" />
+        <label className="upload-zone">
+          <input type="file" accept="application/pdf,image/*,.pdf" onChange={(event) => void handleFile(event.target.files?.[0] || null)} />
+          <span>{fileName || 'Add PDF or report image'}</span>
+        </label>
+        <button className="primary-btn">Save report</button>
+      </form>
+      {status && <div className="notice">{status}</div>}
+      <div className="collection-grid">
+        {records.length === 0 ? <EmptyState text="No reports saved yet." /> : records.map((item) => (
+          <RowItem key={item.id} title={item.title} detail={item.details} meta={String(item.metadata.fileName || new Date(item.occurred_at).toLocaleDateString())} />
+        ))}
+      </div>
+    </article>
+  );
 }
 
 function PrescriptionsView({
@@ -883,6 +975,7 @@ function PrescriptionsView({
           extracted_entities: ['vitamin', 'tablet', 'medicine'],
           safety_note: 'This is not a diagnosis or prescription. Confirm medicines with a licensed professional.',
           created_event: demoTimeline()[4],
+          structured_records: [],
         });
       } else {
         const result = await api.analyzePrescriptionPhoto(token, { imageName, imageData, question });
@@ -1044,6 +1137,12 @@ function emptyRecords(): Record<RecordType, HealthRecord[]> {
     wearables: [],
     reminders: [],
     insights: [],
+    food: [],
+    sleep: [],
+    water: [],
+    activity: [],
+    symptoms: [],
+    vitals: [],
   };
 }
 
@@ -1067,6 +1166,12 @@ function demoRecords(): Record<RecordType, HealthRecord[]> {
     insights: insights.map((item, index) =>
       recordFromSeed('insights', `Insight ${index + 1}`, item),
     ),
+    food: [],
+    sleep: [],
+    water: [],
+    activity: [],
+    symptoms: [],
+    vitals: [],
   };
 }
 

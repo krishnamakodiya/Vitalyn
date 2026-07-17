@@ -133,6 +133,33 @@ def split_data_url(data_url: str) -> tuple[str | None, str]:
     return mime_type, data
 
 
+VOICE_RECORD_TYPES = {"food", "sleep", "water", "activity", "symptoms", "medications", "vitals"}
+
+
+def parse_voice_structure(raw: str, transcript: str) -> list[dict[str, object]]:
+    try:
+        items = json.loads(raw[raw.index("["): raw.rindex("]") + 1])
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+    except (ValueError, json.JSONDecodeError):
+        pass
+    lowered = transcript.lower()
+    fallback = []
+    keyword_map = {
+        "food": ("food", "breakfast", "lunch", "dinner", "ate", "meal"),
+        "sleep": ("sleep", "slept", "nap", "tired"),
+        "water": ("water", "hydration", "drank"),
+        "activity": ("walk", "run", "gym", "exercise", "workout", "steps"),
+        "symptoms": ("pain", "headache", "fever", "cough", "symptom"),
+        "medications": ("tablet", "capsule", "medicine", "medication", "vitamin"),
+        "vitals": ("heart", "bp", "blood pressure", "pulse"),
+    }
+    for record_type, words in keyword_map.items():
+        if any(word in lowered for word in words):
+            fallback.append({"type": record_type, "title": record_type.title(), "details": transcript})
+    return fallback or [{"type": "insights", "title": "Voice insight", "details": transcript}]
+
+
 ALLOWED_RECORD_TYPES = {
     "medications",
     "reports",
@@ -141,6 +168,12 @@ ALLOWED_RECORD_TYPES = {
     "reminders",
     "insights",
     "chat_messages",
+    "food",
+    "sleep",
+    "water",
+    "activity",
+    "symptoms",
+    "vitals",
 }
 
 
@@ -341,13 +374,26 @@ async def analyze_voice_journal(
     payload: VoiceJournalAnalyze,
     user: UserRecord = Depends(get_current_user),
     service: HealthMemoryService = Depends(get_health_memory_service),
+    session: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
 ) -> AiAnalysisRead:
     transcript = payload.transcript.strip()
     entities = extract_entities(transcript)
     title = voice_title(transcript)
-    details = (
-        f"Voice journal transcript: {transcript} "
-        "AI structured this into health memory for timeline review."
+    prompt = (
+        "Return ONLY JSON array of health facts from this transcript. "
+        "Schema: {\"type\":\"food|sleep|water|activity|symptoms|medications|vitals\","
+        "\"title\":\"short\",\"details\":\"clean factual note\",\"value\":\"optional\",\"unit\":\"optional\"}. "
+        f"Transcript: {transcript}"
+    )
+    try:
+        raw_structure = generate_text_with_config(settings, prompt=prompt).text
+    except (AiNotConfiguredError, AiProviderError):
+        raw_structure = ""
+    structured_items = parse_voice_structure(raw_structure, transcript)
+    details = "AI structured voice journal:\n" + "\n".join(
+        f"- {item.get('type', 'insights')}: {item.get('details') or item.get('title')}"
+        for item in structured_items
     )
     event = service.create_event(
         user_id=user.id,
@@ -358,12 +404,38 @@ async def analyze_voice_journal(
         occurred_at=datetime.now(UTC),
         linked_entities=tuple(entities),
     )
+    now = datetime.now(UTC)
+    records = []
+    for item in structured_items[:10]:
+        record_type = str(item.get("type") or "insights").strip().lower()
+        if record_type not in VOICE_RECORD_TYPES:
+            record_type = "insights"
+        record = HealthRecord(
+            id=str(uuid4()),
+            user_id=user.id,
+            record_type=record_type,
+            title=str(item.get("title") or record_type.title())[:160],
+            details=str(item.get("details") or transcript)[:4000],
+            metadata_json=json.dumps({
+                "value": item.get("value"),
+                "unit": item.get("unit"),
+                "source": "voice_journal",
+            }),
+            occurred_at=now,
+            created_at=now,
+        )
+        session.add(record)
+        records.append(record)
+    session.commit()
+    for record in records:
+        session.refresh(record)
     return AiAnalysisRead(
         title=title,
         summary=details,
         extracted_entities=entities,
         safety_note=SAFETY_NOTE,
         created_event=TimelineEventRead.model_validate(event),
+        structured_records=[health_record_read(record) for record in records],
     )
 
 
