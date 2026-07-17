@@ -17,3 +17,7 @@ build/
 # Local env
 .env
 .env.*
+
+# Web
+node_modules/
+dist/

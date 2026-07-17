@@ -18,7 +18,16 @@ class Settings:
         "http://localhost:5173",
         "http://127.0.0.1:8080",
         "http://localhost:8080",
+        "https://krishnamakodiya.github.io",
     )
+
+
+def normalize_database_url(database_url: str) -> str:
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql+psycopg://", 1)
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
 
 
 def get_settings() -> Settings:
@@ -28,7 +37,9 @@ def get_settings() -> Settings:
         raise RuntimeError("JWT_SECRET must be set in production")
 
     return Settings(
-        database_url=os.environ.get("DATABASE_URL", Settings.database_url),
+        database_url=normalize_database_url(
+            os.environ.get("DATABASE_URL", Settings.database_url)
+        ),
         environment=environment,
         jwt_secret=jwt_secret or Settings.jwt_secret,
         jwt_issuer=os.environ.get("JWT_ISSUER", Settings.jwt_issuer),
