@@ -73,6 +73,7 @@ export type AiChatReply = {
 };
 
 const CLOUD_API_BASE_URL = 'https://vitalyn-api.onrender.com/api/v1';
+const LOCAL_DB_KEY = 'vitalyn_pages_db_v1';
 
 function defaultApiBaseUrl(): string {
   const configuredUrl = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -84,6 +85,102 @@ function defaultApiBaseUrl(): string {
 }
 
 export const apiBaseUrl = defaultApiBaseUrl();
+
+function canUseLocalBackend(): boolean {
+  return typeof window !== 'undefined' && window.location.hostname.endsWith('github.io');
+}
+
+type LocalUser = { id: string; email: string; password: string; displayName: string };
+type LocalDb = {
+  users: LocalUser[];
+  records: Record<string, HealthRecord[]>;
+  timeline: Record<string, TimelineEvent[]>;
+};
+
+function readLocalDb(): LocalDb {
+  const raw = localStorage.getItem(LOCAL_DB_KEY);
+  if (!raw) return { users: [], records: {}, timeline: {} };
+  try {
+    return JSON.parse(raw) as LocalDb;
+  } catch {
+    return { users: [], records: {}, timeline: {} };
+  }
+}
+
+function writeLocalDb(db: LocalDb): void {
+  localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
+}
+
+function localUserId(token: string): string {
+  return token.replace(/^local:/, '');
+}
+
+function localSession(user: LocalUser): Session {
+  return {
+    accessToken: `local:${user.id}`,
+    user: { id: user.id, email: user.email, displayName: user.displayName, role: 'patient' },
+  };
+}
+
+async function withLocalFallback<T>(remote: () => Promise<T>, local: () => T | Promise<T>): Promise<T> {
+  try {
+    return await remote();
+  } catch (error) {
+    if (canUseLocalBackend()) return local();
+    throw error;
+  }
+}
+
+function localRecord(token: string, recordType: string, input: { title: string; details: string; metadata?: Record<string, unknown> }): HealthRecord {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    record_type: recordType,
+    title: input.title,
+    details: input.details,
+    metadata: input.metadata ?? {},
+    occurred_at: now,
+    created_at: now,
+    archived_at: null,
+  };
+}
+
+function localAnalyzeTranscript(token: string, transcript: string): AiAnalysis {
+  const lower = transcript.toLowerCase();
+  const items: Array<[string, string]> = [];
+  if (/water|drink|hydr/.test(lower)) items.push(['water', 'Hydration']);
+  if (/walk|step|run|exercise|workout/.test(lower)) items.push(['activity', 'Activity']);
+  if (/sleep|slept|wake|woke/.test(lower)) items.push(['sleep', 'Sleep']);
+  if (/ate|food|meal|breakfast|lunch|dinner/.test(lower)) items.push(['food', 'Food']);
+  if (/pain|headache|fever|cough|symptom/.test(lower)) items.push(['symptoms', 'Symptoms']);
+  if (!items.length) items.push(['insights', 'Health note']);
+
+  const db = readLocalDb();
+  const userId = localUserId(token);
+  const records = items.map(([type, title]) => localRecord(token, type, { title, details: transcript, metadata: { source: 'voice_journal' } }));
+  db.records[userId] = [...(db.records[userId] ?? []), ...records];
+  const event = {
+    id: crypto.randomUUID(),
+    category: 'conversation' as MemoryCategory,
+    source: 'voice_journal' as EventSource,
+    title: 'Voice health journal',
+    details: transcript,
+    occurred_at: new Date().toISOString(),
+    linked_entities: items.map((item) => item[0]),
+    created_at: new Date().toISOString(),
+    archived_at: null,
+  };
+  db.timeline[userId] = [event, ...(db.timeline[userId] ?? [])];
+  writeLocalDb(db);
+  return {
+    title: 'Voice health journal',
+    summary: transcript,
+    extracted_entities: items.map((item) => item[0]),
+    safety_note: 'Saved locally in this browser because the cloud backend is unavailable.',
+    created_event: event,
+    structured_records: records,
+  };
+}
 
 function localApiFallbackUrl(): string | null {
   if (apiBaseUrl !== '/api/v1') return null;
@@ -240,36 +337,68 @@ export const api = {
   },
 
   async register(email: string, password: string, displayName: string): Promise<Session> {
-    const body = await request<{
-      access_token: string;
-      user: { id: string; email: string; display_name: string; role: string };
-    }>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, display_name: displayName }),
-    });
-    return normalizeSession(body);
+    return withLocalFallback(
+      async () => {
+        const body = await request<{
+          access_token: string;
+          user: { id: string; email: string; display_name: string; role: string };
+        }>('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ email, password, display_name: displayName }),
+        });
+        return normalizeSession(body);
+      },
+      () => {
+        const db = readLocalDb();
+        const existing = db.users.find((user) => user.email.toLowerCase() === email.toLowerCase());
+        const user = existing ?? { id: crypto.randomUUID(), email, password, displayName: displayName || email.split('@')[0] };
+        if (!existing) {
+          db.users.push(user);
+          writeLocalDb(db);
+        }
+        return localSession(user);
+      },
+    );
   },
 
   async login(email: string, password: string): Promise<Session> {
-    const body = await request<{
-      access_token: string;
-      user: { id: string; email: string; display_name: string; role: string };
-    }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    return normalizeSession(body);
+    return withLocalFallback(
+      async () => {
+        const body = await request<{
+          access_token: string;
+          user: { id: string; email: string; display_name: string; role: string };
+        }>('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+        return normalizeSession(body);
+      },
+      () => {
+        const user = readLocalDb().users.find((item) => item.email.toLowerCase() === email.toLowerCase() && item.password === password);
+        if (!user) throw new Error('No local account found. Create account first.');
+        return localSession(user);
+      },
+    );
   },
 
   listTimeline(token: string): Promise<TimelineEvent[]> {
-    return request<TimelineEvent[]>('/timeline-events', {}, token);
+    return withLocalFallback(
+      () => request<TimelineEvent[]>('/timeline-events', {}, token),
+      () => readLocalDb().timeline[localUserId(token)] ?? [],
+    );
   },
 
   createTimelineEvent(token: string, input: TimelineEventInput): Promise<TimelineEvent> {
-    return request<TimelineEvent>(
-      '/timeline-events',
-      { method: 'POST', body: JSON.stringify(input) },
-      token,
+    return withLocalFallback(
+      () => request<TimelineEvent>('/timeline-events', { method: 'POST', body: JSON.stringify(input) }, token),
+      () => {
+        const db = readLocalDb();
+        const userId = localUserId(token);
+        const event = { ...input, id: crypto.randomUUID(), created_at: new Date().toISOString(), archived_at: null };
+        db.timeline[userId] = [event, ...(db.timeline[userId] ?? [])];
+        writeLocalDb(db);
+        return event;
+      },
     );
   },
 
@@ -278,18 +407,16 @@ export const api = {
   },
 
   analyzeVoiceJournal(token: string, transcript: string): Promise<AiAnalysis> {
-    return request<AiAnalysis>(
-      '/ai/voice-journal',
-      { method: 'POST', body: JSON.stringify({ transcript }) },
-      token,
+    return withLocalFallback(
+      () => request<AiAnalysis>('/ai/voice-journal', { method: 'POST', body: JSON.stringify({ transcript }) }, token),
+      () => localAnalyzeTranscript(token, transcript),
     );
   },
 
   aiChat(token: string, message: string): Promise<AiChatReply> {
-    return request<AiChatReply>(
-      '/ai/chat',
-      { method: 'POST', body: JSON.stringify({ message }) },
-      token,
+    return withLocalFallback(
+      () => request<AiChatReply>('/ai/chat', { method: 'POST', body: JSON.stringify({ message }) }, token),
+      () => ({ reply: `I saved your note locally: ${message}`, provider: 'local', model: 'browser' }),
     );
   },
 
@@ -319,7 +446,10 @@ export const api = {
   },
 
   listRecords(token: string, recordType: string): Promise<HealthRecord[]> {
-    return request<HealthRecord[]>(`/records/${recordType}`, {}, token);
+    return withLocalFallback(
+      () => request<HealthRecord[]>(`/records/${recordType}`, {}, token),
+      () => (readLocalDb().records[localUserId(token)] ?? []).filter((record) => record.record_type === recordType),
+    );
   },
 
   createRecord(
@@ -327,17 +457,27 @@ export const api = {
     recordType: string,
     input: { title: string; details: string; metadata?: Record<string, unknown> },
   ): Promise<HealthRecord> {
-    return request<HealthRecord>(
-      `/records/${recordType}`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          title: input.title,
-          details: input.details,
-          metadata: input.metadata ?? {},
-        }),
+    return withLocalFallback(
+      () => request<HealthRecord>(
+        `/records/${recordType}`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            title: input.title,
+            details: input.details,
+            metadata: input.metadata ?? {},
+          }),
+        },
+        token,
+      ),
+      () => {
+        const db = readLocalDb();
+        const userId = localUserId(token);
+        const record = localRecord(token, recordType, input);
+        db.records[userId] = [record, ...(db.records[userId] ?? [])];
+        writeLocalDb(db);
+        return record;
       },
-      token,
     );
   },
 };
