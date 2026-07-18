@@ -33,6 +33,7 @@
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
+button, input, select, textarea, .panel, .metric-card, .row-item { min-width: 0; }
 
 .auth-product {
   position: relative;
@@ -219,7 +220,8 @@ button { cursor: pointer; }
   font-weight: 800;
 }
 
-.main-stage { min-width: 0; padding: 0 32px 32px; }
+.main-stage { min-width: 0; width: 100%; padding: 0 32px 32px; }
+.dashboard { width: 100%; max-width: 1560px; margin: 0 auto; }
 .topbar {
   display: flex;
   align-items: center;
@@ -267,7 +269,7 @@ h2 { margin: 0 0 18px; font-size: 1.35rem; letter-spacing: 0; }
 p { color: var(--muted); line-height: 1.55; }
 .eyebrow { margin: 0 0 8px; color: var(--primary); font-size: .78rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
 
-.metric-grid { display: grid; grid-template-columns: repeat(5, minmax(190px, 1fr)); gap: 18px; margin-bottom: 24px; }
+.metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px; margin-bottom: 24px; }
 .metric-card {
   position: relative;
   overflow: hidden;
@@ -304,8 +306,8 @@ p { color: var(--muted); line-height: 1.55; }
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.metric-card p { margin: 0 0 8px; font-weight: 800; line-height: 1.25; overflow-wrap: normal; }
-.metric-card strong { display:block; margin-top: 4px; font-size: 1.75rem; line-height: 1.1; color: var(--text); }
+.metric-card p { margin: 0 0 8px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+.metric-card strong { display:block; margin-top: 4px; font-size: clamp(1.25rem, 2vw, 1.75rem); line-height: 1.1; color: var(--text); overflow-wrap: anywhere; }
 .metric-card small { display:block; margin-top: 4px; color: var(--muted); font-size: .82rem; line-height: 1.2; }
 .metric-card em { position: absolute; top: 20px; right: 18px; border-radius: 999px; padding: 6px 9px; background: var(--soft); color: currentColor; font-style: normal; font-weight: 800; white-space: nowrap; }
 .metric-card .notice {
@@ -316,6 +318,10 @@ p { color: var(--muted); line-height: 1.55; }
   font-size: .88rem;
   line-height: 1.25;
   background: #eef5ff;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .metric-card .notice::after {
   content: "›";
@@ -500,6 +506,7 @@ p { color: var(--muted); line-height: 1.55; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 label { display: grid; gap: 8px; color: var(--muted); font-size: .92rem; font-weight: 800; }
 textarea { resize: vertical; }
+textarea { min-height: 140px; max-height: 48vh; overflow: auto; line-height: 1.45; overflow-wrap: anywhere; }
 .soft-panel { background: var(--soft); box-shadow: none; }
 .status-banner, .notice {
   border: 1px solid #bfd0ff;
@@ -559,13 +566,21 @@ textarea { resize: vertical; }
 }
 .entity-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .doctor-summary section { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
-.message { width: fit-content; max-width: 74%; border-radius: 16px; margin: 12px 0; padding: 12px 14px; background: var(--soft); }
+.message { width: fit-content; max-width: 74%; border-radius: 16px; margin: 12px 0; padding: 12px 14px; background: var(--soft); overflow-wrap: anywhere; }
 .message.user { margin-left: auto; background: #e6edff; color: #243b8f; }
 .message time { display: block; margin-top: 5px; color: var(--muted); font-size: .75rem; }
 
 @media (max-width: 1280px) {
-  .metric-grid { grid-template-columns: repeat(3, minmax(190px, 1fr)); }
-  .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "assistant overview"
+      "side side"
+      "reports doctor"
+      "insights insights";
+  }
+  .dashboard-stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 920px) {
@@ -576,17 +591,35 @@ textarea { resize: vertical; }
   .topbar { margin: 0 0 20px; padding: 14px 0; border-bottom: 0; flex-direction: column; align-items: stretch; }
   .main-stage { padding: 18px; }
   .metric-grid, .dashboard-grid, .view-grid.two, .doctor-hero, .auth-product { grid-template-columns: 1fr; }
+  .dashboard-grid {
+    grid-template-areas:
+      "assistant"
+      "overview"
+      "side"
+      "reports"
+      "doctor"
+      "insights";
+  }
+  .dashboard-stack { grid-template-columns: 1fr; }
   .search-box { width: 100%; }
+  .metric-top { padding-right: 70px; }
 }
 
 @media (max-width: 560px) {
-  .auth-product { width: min(100% - 28px, 1180px); padding: 20px 0; }
+  .auth-product { width: 100%; padding: 20px 14px; }
+  .auth-card { padding: 28px 20px; }
   .logo strong { font-size: 1.55rem; }
   .top-actions, .welcome-row, .section-head.horizontal, .timeline-row, .row-item { display: grid; grid-template-columns: 1fr; align-items: start; }
   .side-nav { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: 1fr; }
+  .metric-card { min-height: auto; }
+  .metric-top { grid-template-columns: 44px minmax(0, 1fr); padding-right: 0; }
+  .metric-card em { position: static; width: fit-content; margin-top: 10px; }
   .quick-grid, .form-grid, .summary-visual { grid-template-columns: 1fr; }
   .inline-add-form { grid-template-columns: 1fr; }
   .voice-actions { grid-template-columns: 1fr; }
+  .panel { padding: 18px; }
+  .chat-input { display: grid; }
+  .message { max-width: 100%; }
   .timeline-row time, .row-item span { white-space: normal; }
 }

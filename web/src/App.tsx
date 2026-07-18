@@ -550,6 +550,10 @@ function FreshMetricCard({ metric }: { metric: (typeof freshMetrics)[number] }) 
 
 function dashboardMetrics(records: Record<RecordType, HealthRecord[]>): typeof freshMetrics {
   const latest = (type: RecordType) => records[type]?.[0];
+  const summary = (record: HealthRecord | undefined, fallback: string) => {
+    if (!record) return fallback;
+    return conciseText(record.details || record.title, 96);
+  };
   const metricValue = (record?: HealthRecord, fallback = 'Logged') => {
     if (!record) return { value: '--', unit: 'Awaiting entry' };
     const value = typeof record.metadata.value === 'string' ? record.metadata.value : '';
@@ -565,10 +569,10 @@ function dashboardMetrics(records: Record<RecordType, HealthRecord[]>): typeof f
   const score = Math.min(100, 50 + ['food', 'sleep', 'water', 'activity', 'symptoms', 'medications'].filter((type) => records[type as RecordType].length).length * 8);
   return [
     { label: 'Health Score', value: String(score), unit: '/100', status: records.insights.length || records.symptoms.length ? 'Updated' : 'Ready', action: `${records.insights.length + records.symptoms.length} health insights/symptoms logged.` },
-    { label: 'Steps', value: activity.value, unit: activity.unit, status: latest('activity') ? 'Logged' : 'Ready', action: latest('activity')?.details || 'Log walks/workouts by voice.' },
-    { label: 'Sleep', value: sleep.value, unit: sleep.unit, status: latest('sleep') ? 'Logged' : 'Ready', action: latest('sleep')?.details || 'Record sleep by voice.' },
-    { label: 'Water Intake', value: water.value, unit: water.unit, status: latest('water') ? 'Logged' : 'Ready', action: latest('water')?.details || 'Log hydration by voice.' },
-    { label: 'Food', value: latest('food') ? 'Logged' : '--', unit: latest('food')?.title || 'Awaiting entry', status: latest('food') ? 'Logged' : 'Ready', action: latest('food')?.details || 'Record meals by voice.' },
+    { label: 'Steps', value: activity.value, unit: activity.unit, status: latest('activity') ? 'Logged' : 'Ready', action: summary(latest('activity'), 'Log walks/workouts by voice.') },
+    { label: 'Sleep', value: sleep.value, unit: sleep.unit, status: latest('sleep') ? 'Logged' : 'Ready', action: summary(latest('sleep'), 'Record sleep by voice.') },
+    { label: 'Water Intake', value: water.value, unit: water.unit, status: latest('water') ? 'Logged' : 'Ready', action: summary(latest('water'), 'Log hydration by voice.') },
+    { label: 'Food', value: latest('food') ? 'Logged' : '--', unit: latest('food')?.title || 'Awaiting entry', status: latest('food') ? 'Logged' : 'Ready', action: summary(latest('food'), 'Record meals by voice.') },
   ];
 }
 
@@ -1298,6 +1302,11 @@ function formatDuration(seconds: number) {
 
 function firstName(name: string) {
   return name.trim().split(/\s+/)[0] || 'there';
+}
+
+function conciseText(text: string, limit: number) {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > limit ? `${clean.slice(0, limit - 1).trim()}...` : clean;
 }
 
 function initials(name: string) {
