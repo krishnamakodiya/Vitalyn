@@ -718,6 +718,8 @@ function JournalView({
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const speechRef = useRef<{ stop: () => void } | null>(null);
+  const speechDraftRef = useRef('');
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
 
@@ -742,9 +744,62 @@ function JournalView({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunksRef.current = [];
+      speechDraftRef.current = '';
+      setTranscript('');
       setAudioUrl('');
       setAudioBlob(null);
       setRecordingSeconds(0);
+      const SpeechRecognitionCtor = (
+        window as unknown as {
+          SpeechRecognition?: new () => {
+            continuous: boolean;
+            interimResults: boolean;
+            lang: string;
+            onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+            onerror: (() => void) | null;
+            start: () => void;
+            stop: () => void;
+          };
+          webkitSpeechRecognition?: new () => {
+            continuous: boolean;
+            interimResults: boolean;
+            lang: string;
+            onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+            onerror: (() => void) | null;
+            start: () => void;
+            stop: () => void;
+          };
+        }
+      ).SpeechRecognition ?? (
+        window as unknown as {
+          webkitSpeechRecognition?: new () => {
+            continuous: boolean;
+            interimResults: boolean;
+            lang: string;
+            onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+            onerror: (() => void) | null;
+            start: () => void;
+            stop: () => void;
+          };
+        }
+      ).webkitSpeechRecognition;
+      if (SpeechRecognitionCtor) {
+        const speech = new SpeechRecognitionCtor();
+        speech.continuous = true;
+        speech.interimResults = true;
+        speech.lang = 'en-US';
+        speech.onresult = (event) => {
+          let text = '';
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {
+            text += event.results[index][0].transcript;
+          }
+          speechDraftRef.current = `${speechDraftRef.current} ${text}`.trim();
+          setTranscript(speechDraftRef.current);
+        };
+        speech.onerror = () => undefined;
+        speech.start();
+        speechRef.current = speech;
+      }
       const recorder = new MediaRecorder(stream);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
@@ -758,7 +813,7 @@ function JournalView({
         if (timerRef.current) window.clearInterval(timerRef.current);
         timerRef.current = null;
         setIsRecording(false);
-        setVoiceStatus('Recording saved. Click transcribe to structure it into health memory.');
+        setVoiceStatus(speechDraftRef.current ? 'Transcript captured. Review it, then save to memory.' : 'Recording saved. Click transcribe to structure it into health memory.');
       };
       recorder.start();
       setIsRecording(true);
@@ -775,11 +830,17 @@ function JournalView({
     if (recorderRef.current?.state === 'recording') {
       recorderRef.current.stop();
     }
+    speechRef.current?.stop();
+    speechRef.current = null;
   }
 
   async function transcribeRecording() {
     if (!audioBlob) {
       setVoiceStatus('Record audio first, or use the sample transcript.');
+      return;
+    }
+    if (transcript.trim()) {
+      setVoiceStatus('Transcript is ready. Review it, then save to memory.');
       return;
     }
     if (token === 'offline-demo-token') {
