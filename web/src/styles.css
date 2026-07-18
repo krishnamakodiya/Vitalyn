@@ -469,6 +469,17 @@ p { color: var(--muted); line-height: 1.55; }
 .row-item strong { display: block; }
 .row-item p { margin: 3px 0 0; font-size: .92rem; }
 .row-item span { color: var(--muted); font-weight: 800; white-space: nowrap; }
+.row-actions { display: grid; justify-items: end; gap: 6px; }
+.file-link {
+  color: var(--primary);
+  font-weight: 900;
+  text-decoration: none;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(37, 99, 235, .06);
+}
+.file-link:hover { background: rgba(37, 99, 235, .12); }
 
 .insight-card { position: relative; overflow: hidden; background: linear-gradient(135deg, #e7fbf5 0%, #f4fbff 100%); }
 :root.dark .insight-card { background: linear-gradient(135deg, #143529, #15243c); }
@@ -589,4 +600,5 @@ textarea { resize: vertical; }
   .inline-add-form { grid-template-columns: 1fr; }
   .voice-actions { grid-template-columns: 1fr; }
   .timeline-row time, .row-item span { white-space: normal; }
+  .row-actions { justify-items: start; }
 }

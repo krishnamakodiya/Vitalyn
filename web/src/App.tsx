@@ -308,6 +308,7 @@ export function App() {
             records={records.prescriptions}
             onAdd={addRecord}
             onEventCreated={(event) => setEvents((current) => [event, ...current])}
+            onPrescriptionCreated={(record) => setRecords((current) => ({ ...current, prescriptions: [record, ...current.prescriptions] }))}
             onReminderCreated={(record) => setRecords((current) => ({ ...current, reminders: [record, ...current.reminders] }))}
           />
         )}
@@ -970,7 +971,13 @@ function ReportsView({
       {status && <div className="notice">{status}</div>}
       <div className="collection-grid">
         {records.length === 0 ? <EmptyState text="No reports saved yet." /> : records.map((item) => (
-          <RowItem key={item.id} title={item.title} detail={item.details} meta={String(item.metadata.fileName || new Date(item.occurred_at).toLocaleDateString())} />
+          <RowItem
+            key={item.id}
+            title={item.title}
+            detail={item.details}
+            meta={String(item.metadata.fileName || new Date(item.occurred_at).toLocaleDateString())}
+            fileUrl={typeof item.metadata.fileData === 'string' ? item.metadata.fileData : undefined}
+          />
         ))}
       </div>
     </article>
@@ -982,12 +989,14 @@ function PrescriptionsView({
   records,
   onAdd,
   onEventCreated,
+  onPrescriptionCreated,
   onReminderCreated,
 }: {
   token: string;
   records: HealthRecord[];
   onAdd: (recordType: RecordType, title: string, details: string) => void;
   onEventCreated: (event: TimelineEvent) => void;
+  onPrescriptionCreated: (record: HealthRecord) => void;
   onReminderCreated: (record: HealthRecord) => void;
 }) {
   const [imageName, setImageName] = useState('');
@@ -1023,6 +1032,11 @@ function PrescriptionsView({
         const result = await api.analyzePrescriptionPhoto(token, { imageName, imageData, question });
         setAnalysis(result);
         onEventCreated(result.created_event);
+        onPrescriptionCreated(await api.createRecord(token, 'prescriptions', {
+          title: imageName || 'Prescription upload',
+          details: question,
+          metadata: { fileName: imageName, fileData: imageData, source: 'prescription_upload' },
+        }));
         onReminderCreated(await api.createRecord(token, 'reminders', {
           title: `Review ${imageName || 'prescription'}`,
           details: 'Confirm medicine, dosage, and timing with doctor/pharmacist.',
@@ -1053,7 +1067,7 @@ function PrescriptionsView({
         {status && <div className="notice">{status}</div>}
         {analysis && <AnalysisCard analysis={analysis} />}
       </article>
-      <CollectionView eyebrow="Medication Understanding" title="Saved prescription records" recordType="prescriptions" records={records} onAdd={onAdd} />
+      <CollectionView eyebrow="Medication Understanding" title="Saved prescription records" recordType="prescriptions" records={records} onAdd={onAdd} showFiles />
     </section>
   );
 }
@@ -1130,12 +1144,14 @@ function CollectionView({
   recordType,
   records,
   onAdd,
+  showFiles = false,
 }: {
   eyebrow: string;
   title: string;
   recordType: RecordType;
   records: HealthRecord[];
   onAdd: (recordType: RecordType, title: string, details: string) => void;
+  showFiles?: boolean;
 }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1154,7 +1170,13 @@ function CollectionView({
       </form>
       <div className="collection-grid">
         {records.length === 0 ? <EmptyState text={`No ${recordType.replaceAll('_', ' ')} saved yet.`} /> : records.map((item) => (
-          <RowItem key={item.id} title={item.title} detail={item.details} meta={new Date(item.occurred_at).toLocaleDateString()} />
+          <RowItem
+            key={item.id}
+            title={item.title}
+            detail={item.details}
+            meta={String(item.metadata.fileName || new Date(item.occurred_at).toLocaleDateString())}
+            fileUrl={showFiles && typeof item.metadata.fileData === 'string' ? item.metadata.fileData : undefined}
+          />
         ))}
       </div>
     </article>
@@ -1177,12 +1199,15 @@ function AnalysisCard({ analysis }: { analysis: AiAnalysis }) {
   );
 }
 
-function RowItem({ title, detail, meta, status }: { title: string; detail: string; meta: string; status?: string }) {
+function RowItem({ title, detail, meta, status, fileUrl }: { title: string; detail: string; meta: string; status?: string; fileUrl?: string }) {
   return (
     <div className="row-item">
       <div className="row-icon"><HealthIcon label={title} /></div>
       <div><strong>{title}</strong><p>{detail}</p></div>
-      <span>{status || meta}</span>
+      <div className="row-actions">
+        <span>{status || meta}</span>
+        {fileUrl && <a className="file-link" href={fileUrl} target="_blank" rel="noreferrer">Open file</a>}
+      </div>
     </div>
   );
 }
