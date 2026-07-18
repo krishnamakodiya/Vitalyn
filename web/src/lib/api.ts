@@ -72,8 +72,18 @@ export type AiChatReply = {
   model: string;
 };
 
-export const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL?.trim() || '/api/v1';
+const CLOUD_API_BASE_URL = 'https://vitalyn-api.onrender.com/api/v1';
+
+function defaultApiBaseUrl(): string {
+  const configuredUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (configuredUrl) return configuredUrl;
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+    return CLOUD_API_BASE_URL;
+  }
+  return '/api/v1';
+}
+
+export const apiBaseUrl = defaultApiBaseUrl();
 
 function localApiFallbackUrl(): string | null {
   if (apiBaseUrl !== '/api/v1') return null;
@@ -145,7 +155,7 @@ async function requestFrom<T>(
           .join(' ');
       }
     } else if (typeof body === 'string' && body.trim()) {
-      detail = `Request failed (${response.status}) at ${apiBaseUrl}${path}. The API did not return JSON.`;
+      detail = `Request failed (${response.status}) at ${baseUrl}${path}. The API did not return JSON.`;
     }
     throw new Error(detail);
   }
