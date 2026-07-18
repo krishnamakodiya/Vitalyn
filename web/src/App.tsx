@@ -308,7 +308,6 @@ export function App() {
             records={records.prescriptions}
             onAdd={addRecord}
             onEventCreated={(event) => setEvents((current) => [event, ...current])}
-            onPrescriptionCreated={(record) => setRecords((current) => ({ ...current, prescriptions: [record, ...current.prescriptions] }))}
             onReminderCreated={(record) => setRecords((current) => ({ ...current, reminders: [record, ...current.reminders] }))}
           />
         )}
@@ -718,8 +717,6 @@ function JournalView({
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const speechRef = useRef<{ stop: () => void } | null>(null);
-  const speechDraftRef = useRef('');
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
 
@@ -744,62 +741,9 @@ function JournalView({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       chunksRef.current = [];
-      speechDraftRef.current = '';
-      setTranscript('');
       setAudioUrl('');
       setAudioBlob(null);
       setRecordingSeconds(0);
-      const SpeechRecognitionCtor = (
-        window as unknown as {
-          SpeechRecognition?: new () => {
-            continuous: boolean;
-            interimResults: boolean;
-            lang: string;
-            onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-            onerror: (() => void) | null;
-            start: () => void;
-            stop: () => void;
-          };
-          webkitSpeechRecognition?: new () => {
-            continuous: boolean;
-            interimResults: boolean;
-            lang: string;
-            onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-            onerror: (() => void) | null;
-            start: () => void;
-            stop: () => void;
-          };
-        }
-      ).SpeechRecognition ?? (
-        window as unknown as {
-          webkitSpeechRecognition?: new () => {
-            continuous: boolean;
-            interimResults: boolean;
-            lang: string;
-            onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-            onerror: (() => void) | null;
-            start: () => void;
-            stop: () => void;
-          };
-        }
-      ).webkitSpeechRecognition;
-      if (SpeechRecognitionCtor) {
-        const speech = new SpeechRecognitionCtor();
-        speech.continuous = true;
-        speech.interimResults = true;
-        speech.lang = 'en-US';
-        speech.onresult = (event) => {
-          let text = '';
-          for (let index = event.resultIndex; index < event.results.length; index += 1) {
-            text += event.results[index][0].transcript;
-          }
-          speechDraftRef.current = `${speechDraftRef.current} ${text}`.trim();
-          setTranscript(speechDraftRef.current);
-        };
-        speech.onerror = () => undefined;
-        speech.start();
-        speechRef.current = speech;
-      }
       const recorder = new MediaRecorder(stream);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
@@ -813,7 +757,7 @@ function JournalView({
         if (timerRef.current) window.clearInterval(timerRef.current);
         timerRef.current = null;
         setIsRecording(false);
-        setVoiceStatus(speechDraftRef.current ? 'Transcript captured. Review it, then save to memory.' : 'Recording saved. Click transcribe to structure it into health memory.');
+        setVoiceStatus('Recording saved. Click transcribe to structure it into health memory.');
       };
       recorder.start();
       setIsRecording(true);
@@ -830,17 +774,11 @@ function JournalView({
     if (recorderRef.current?.state === 'recording') {
       recorderRef.current.stop();
     }
-    speechRef.current?.stop();
-    speechRef.current = null;
   }
 
   async function transcribeRecording() {
     if (!audioBlob) {
       setVoiceStatus('Record audio first, or use the sample transcript.');
-      return;
-    }
-    if (transcript.trim()) {
-      setVoiceStatus('Transcript is ready. Review it, then save to memory.');
       return;
     }
     if (token === 'offline-demo-token') {
@@ -1032,13 +970,7 @@ function ReportsView({
       {status && <div className="notice">{status}</div>}
       <div className="collection-grid">
         {records.length === 0 ? <EmptyState text="No reports saved yet." /> : records.map((item) => (
-          <RowItem
-            key={item.id}
-            title={item.title}
-            detail={item.details}
-            meta={String(item.metadata.fileName || new Date(item.occurred_at).toLocaleDateString())}
-            fileUrl={typeof item.metadata.fileData === 'string' ? item.metadata.fileData : undefined}
-          />
+          <RowItem key={item.id} title={item.title} detail={item.details} meta={String(item.metadata.fileName || new Date(item.occurred_at).toLocaleDateString())} />
         ))}
       </div>
     </article>
@@ -1050,14 +982,12 @@ function PrescriptionsView({
   records,
   onAdd,
   onEventCreated,
-  onPrescriptionCreated,
   onReminderCreated,
 }: {
   token: string;
   records: HealthRecord[];
   onAdd: (recordType: RecordType, title: string, details: string) => void;
   onEventCreated: (event: TimelineEvent) => void;
-  onPrescriptionCreated: (record: HealthRecord) => void;
   onReminderCreated: (record: HealthRecord) => void;
 }) {
   const [imageName, setImageName] = useState('');
@@ -1093,11 +1023,6 @@ function PrescriptionsView({
         const result = await api.analyzePrescriptionPhoto(token, { imageName, imageData, question });
         setAnalysis(result);
         onEventCreated(result.created_event);
-        onPrescriptionCreated(await api.createRecord(token, 'prescriptions', {
-          title: imageName || 'Prescription upload',
-          details: question,
-          metadata: { fileName: imageName, fileData: imageData, source: 'prescription_upload' },
-        }));
         onReminderCreated(await api.createRecord(token, 'reminders', {
           title: `Review ${imageName || 'prescription'}`,
           details: 'Confirm medicine, dosage, and timing with doctor/pharmacist.',
@@ -1128,7 +1053,7 @@ function PrescriptionsView({
         {status && <div className="notice">{status}</div>}
         {analysis && <AnalysisCard analysis={analysis} />}
       </article>
-      <CollectionView eyebrow="Medication Understanding" title="Saved prescription records" recordType="prescriptions" records={records} onAdd={onAdd} showFiles />
+      <CollectionView eyebrow="Medication Understanding" title="Saved prescription records" recordType="prescriptions" records={records} onAdd={onAdd} />
     </section>
   );
 }
@@ -1205,14 +1130,12 @@ function CollectionView({
   recordType,
   records,
   onAdd,
-  showFiles = false,
 }: {
   eyebrow: string;
   title: string;
   recordType: RecordType;
   records: HealthRecord[];
   onAdd: (recordType: RecordType, title: string, details: string) => void;
-  showFiles?: boolean;
 }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1231,13 +1154,7 @@ function CollectionView({
       </form>
       <div className="collection-grid">
         {records.length === 0 ? <EmptyState text={`No ${recordType.replaceAll('_', ' ')} saved yet.`} /> : records.map((item) => (
-          <RowItem
-            key={item.id}
-            title={item.title}
-            detail={item.details}
-            meta={String(item.metadata.fileName || new Date(item.occurred_at).toLocaleDateString())}
-            fileUrl={showFiles && typeof item.metadata.fileData === 'string' ? item.metadata.fileData : undefined}
-          />
+          <RowItem key={item.id} title={item.title} detail={item.details} meta={new Date(item.occurred_at).toLocaleDateString()} />
         ))}
       </div>
     </article>
@@ -1260,15 +1177,12 @@ function AnalysisCard({ analysis }: { analysis: AiAnalysis }) {
   );
 }
 
-function RowItem({ title, detail, meta, status, fileUrl }: { title: string; detail: string; meta: string; status?: string; fileUrl?: string }) {
+function RowItem({ title, detail, meta, status }: { title: string; detail: string; meta: string; status?: string }) {
   return (
     <div className="row-item">
       <div className="row-icon"><HealthIcon label={title} /></div>
       <div><strong>{title}</strong><p>{detail}</p></div>
-      <div className="row-actions">
-        <span>{status || meta}</span>
-        {fileUrl && <a className="file-link" href={fileUrl} target="_blank" rel="noreferrer">Open file</a>}
-      </div>
+      <span>{status || meta}</span>
     </div>
   );
 }

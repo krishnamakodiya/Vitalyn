@@ -74,7 +74,6 @@ export type AiChatReply = {
 
 const CLOUD_API_BASE_URL = 'https://vitalyn-api.onrender.com/api/v1';
 const LOCAL_DB_KEY = 'vitalyn_pages_db_v1';
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL?.trim() || 'gemini-2.0-flash';
 
 function defaultApiBaseUrl(): string {
   const configuredUrl = import.meta.env.VITE_API_BASE_URL?.trim();
@@ -146,57 +145,14 @@ function localRecord(token: string, recordType: string, input: { title: string; 
   };
 }
 
-function geminiApiKey(): string {
-  return import.meta.env.VITE_GEMINI_API_KEY?.trim() || '';
-}
-
-async function fileBlobToBase64(blob: Blob): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('Could not read file.'));
-    reader.readAsDataURL(blob);
-  });
-  return dataUrl.split(',', 2)[1] ?? '';
-}
-
-async function callGemini(parts: Array<Record<string, unknown>>): Promise<string> {
-  const key = geminiApiKey();
-  if (!key) throw new Error('Gemini API key is not configured for this deployment.');
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ role: 'user', parts }] }),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(body?.error?.message || 'Gemini request failed.');
-  return String(body?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-}
-
-function parseGeminiJson<T>(text: string): T | null {
-  const cleaned = text.replace(/```json|```/g, '').trim();
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    return null;
-  }
-}
-
-async function localAnalyzeTranscript(token: string, transcript: string): Promise<AiAnalysis> {
+function localAnalyzeTranscript(token: string, transcript: string): AiAnalysis {
   const lower = transcript.toLowerCase();
   const items: Array<[string, string]> = [];
-  try {
-    const text = await callGemini([{ text: `Extract health records from this voice journal. Return only JSON array like [{"type":"water|activity|sleep|food|symptoms|medications|vitals|insights","title":"short title","details":"clean detail"}]. Transcript: ${transcript}` }]);
-    const parsed = parseGeminiJson<Array<{ type: string; title: string; details: string }>>(text);
-    parsed?.forEach((item) => items.push([item.type, item.title || item.type]));
-  } catch {
-    // keep local parser fallback
-  }
-  if (!items.length && /water|drink|hydr/.test(lower)) items.push(['water', 'Hydration']);
-  if (!items.length && /walk|step|run|exercise|workout/.test(lower)) items.push(['activity', 'Activity']);
-  if (!items.length && /sleep|slept|wake|woke/.test(lower)) items.push(['sleep', 'Sleep']);
-  if (!items.length && /ate|food|meal|breakfast|lunch|dinner/.test(lower)) items.push(['food', 'Food']);
-  if (!items.length && /pain|headache|fever|cough|symptom/.test(lower)) items.push(['symptoms', 'Symptoms']);
+  if (/water|drink|hydr/.test(lower)) items.push(['water', 'Hydration']);
+  if (/walk|step|run|exercise|workout/.test(lower)) items.push(['activity', 'Activity']);
+  if (/sleep|slept|wake|woke/.test(lower)) items.push(['sleep', 'Sleep']);
+  if (/ate|food|meal|breakfast|lunch|dinner/.test(lower)) items.push(['food', 'Food']);
+  if (/pain|headache|fever|cough|symptom/.test(lower)) items.push(['symptoms', 'Symptoms']);
   if (!items.length) items.push(['insights', 'Health note']);
 
   const db = readLocalDb();
@@ -220,7 +176,7 @@ async function localAnalyzeTranscript(token: string, transcript: string): Promis
     title: 'Voice health journal',
     summary: transcript,
     extracted_entities: items.map((item) => item[0]),
-    safety_note: geminiApiKey() ? 'Structured with Gemini and saved locally in this browser.' : 'Saved locally in this browser because the cloud backend is unavailable.',
+    safety_note: 'Saved locally in this browser because the cloud backend is unavailable.',
     created_event: event,
     structured_records: records,
   };
@@ -460,11 +416,7 @@ export const api = {
   aiChat(token: string, message: string): Promise<AiChatReply> {
     return withLocalFallback(
       () => request<AiChatReply>('/ai/chat', { method: 'POST', body: JSON.stringify({ message }) }, token),
-      async () => ({
-        reply: await callGemini([{ text: `You are Vitalyn, a careful AI health companion. Answer briefly and safely. User: ${message}` }]),
-        provider: 'gemini',
-        model: GEMINI_MODEL,
-      }),
+      () => ({ reply: `I saved your note locally: ${message}`, provider: 'local', model: 'browser' }),
     );
   },
 
@@ -472,63 +424,24 @@ export const api = {
     const formData = new FormData();
     const extension = audio.type.includes('mp4') ? 'mp4' : 'webm';
     formData.append('audio', audio, `vitalyn-recording.${extension}`);
-    return withLocalFallback(
-      () => upload<VoiceTranscription>('/ai/voice-transcription', formData, token),
-      async () => ({
-        transcript: await callGemini([
-          { text: 'Transcribe this health journal audio. Return only the transcript.' },
-          { inline_data: { mime_type: audio.type || 'audio/webm', data: await fileBlobToBase64(audio) } },
-        ]),
-        provider: 'gemini',
-        model: GEMINI_MODEL,
-      }),
-    );
+    return upload<VoiceTranscription>('/ai/voice-transcription', formData, token);
   },
 
   analyzePrescriptionPhoto(
     token: string,
     input: { imageName: string; imageData: string; question: string },
   ): Promise<AiAnalysis> {
-    return withLocalFallback(
-      () => request<AiAnalysis>(
-        '/ai/prescription-photo',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            image_name: input.imageName,
-            image_data: input.imageData,
-            question: input.question,
-          }),
-        },
-        token,
-      ),
-      async () => {
-        const [header, data] = input.imageData.split(',', 2);
-        const mimeType = header?.match(/^data:(.*?);/)?.[1] || 'image/jpeg';
-        const summary = await callGemini([
-          { text: `Read this prescription/report image and answer safely. Question: ${input.question}` },
-          { inline_data: { mime_type: mimeType, data } },
-        ]);
-        const event = {
-          id: crypto.randomUUID(),
-          category: 'medical' as MemoryCategory,
-          source: 'prescription_ocr' as EventSource,
-          title: input.imageName || 'Prescription upload',
-          details: summary,
-          occurred_at: new Date().toISOString(),
-          linked_entities: [],
-          created_at: new Date().toISOString(),
-          archived_at: null,
-        };
-        return {
-          title: event.title,
-          summary,
-          extracted_entities: [],
-          safety_note: 'Gemini can make mistakes. Confirm all medicines and dosage with a doctor/pharmacist.',
-          created_event: event,
-          structured_records: [],
-        };
+    return request<AiAnalysis>(
+      '/ai/prescription-photo',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          image_name: input.imageName,
+          image_data: input.imageData,
+          question: input.question,
+        }),
       },
+      token,
     );
   },
 
