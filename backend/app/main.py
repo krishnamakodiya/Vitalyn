@@ -495,10 +495,15 @@ async def ai_chat(
     )
     try:
         result = generate_text_with_config(settings, prompt=prompt)
-    except AiNotConfiguredError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except AiProviderError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except (AiNotConfiguredError, AiProviderError):
+        return ChatRead(
+            reply=(
+                "I could not reach the AI service right now. I saved your note; "
+                "for medical concerns, track symptoms and contact a clinician if they persist or worsen."
+            ),
+            provider="fallback",
+            model="local",
+        )
     return ChatRead(reply=result.text, provider=result.provider, model=result.model)
 
 

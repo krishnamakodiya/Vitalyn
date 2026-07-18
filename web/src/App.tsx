@@ -246,8 +246,8 @@ export function App() {
       try {
         const result = await api.aiChat(session.accessToken, message);
         reply = result.reply;
-      } catch (error) {
-        reply = error instanceof Error ? error.message : 'AI chat is unavailable right now.';
+      } catch {
+        reply = 'AI chat is temporarily unavailable. I saved your message as a health note.';
       }
     }
     setChat((current) => [...current, { from: 'assistant', text: reply, time: now }]);
@@ -512,7 +512,7 @@ function MetricCard({ metric }: { metric: (typeof metrics)[number] }) {
   return (
     <article className={`metric-card ${metric.tone}`}>
       <div className="metric-top">
-        <span className="metric-icon">{metric.label.slice(0, 1)}</span>
+        <span className="metric-icon"><HealthIcon label={metric.label} /></span>
         <div>
           <p>{metric.label}</p>
           <strong>{metric.value} <small>{metric.unit}</small></strong>
@@ -536,7 +536,7 @@ function FreshMetricCard({ metric }: { metric: (typeof freshMetrics)[number] }) 
   return (
     <article className="metric-card">
       <div className="metric-top">
-        <span className="metric-icon">{metric.label.slice(0, 1)}</span>
+        <span className="metric-icon"><HealthIcon label={metric.label} /></span>
         <div>
           <p>{metric.label}</p>
           <strong>{metric.value || '--'} <small>{metric.unit || 'No data'}</small></strong>
@@ -598,7 +598,7 @@ function OverviewChart({ isDemo }: { isDemo: boolean }) {
           </div>
         </>
       ) : (
-        <EmptyState text="No weekly overview yet. Add journal entries or wearable records to build your chart." />
+        <VisualEmpty type="overview" text="No weekly overview yet. Add journal entries or wearable records to build your chart." />
       )}
     </article>
   );
@@ -615,7 +615,7 @@ function AssistantCard({ displayName, onSend, compact = false }: { displayName?:
   return (
     <article className={`panel assistant-card ${compact ? 'compact' : ''}`}>
       <p className="eyebrow">AI Health Assistant</p>
-      <div className="assistant-bubble">Hi {firstName(displayName || demoUser.name)}. I am your AI health companion. How are you feeling today?</div>
+      <div className="assistant-bubble"><HealthIcon label="AI Health Chat" />Hi {firstName(displayName || demoUser.name)}. I am your AI health companion. How are you feeling today?</div>
       <div className="quick-grid">
         {quick.map((item) => <button key={item} onClick={() => submit(item)}>{item}</button>)}
       </div>
@@ -633,7 +633,7 @@ function ReminderCard({ records }: { records: HealthRecord[] }) {
     <article className="panel">
       <div className="section-head horizontal"><h2>Upcoming Reminders</h2><button className="ghost-btn">View All</button></div>
       <div className="list-stack">
-        {records.length === 0 ? <EmptyState text="No reminders yet." /> : records.slice(0, 4).map((item) => <RowItem key={item.id} title={item.title} detail={item.details} meta={String(item.metadata.time || new Date(item.occurred_at).toLocaleString())} />)}
+        {records.length === 0 ? <VisualEmpty type="reminders" text="No reminders yet." /> : records.slice(0, 4).map((item) => <RowItem key={item.id} title={item.title} detail={item.details} meta={String(item.metadata.time || new Date(item.occurred_at).toLocaleString())} />)}
       </div>
     </article>
   );
@@ -659,7 +659,7 @@ function RecentLogs({ events, onViewAll }: { events: TimelineEvent[]; onViewAll:
   return (
     <article className="panel">
       <div className="section-head horizontal"><h2>Recent Logs</h2><button className="ghost-btn" onClick={onViewAll}>View All</button></div>
-      <div className="list-stack">{events.length === 0 ? <EmptyState text="No health memories yet." /> : events.slice(0, 4).map((event) => <RowItem key={event.id} title={event.title} detail={new Date(event.occurred_at).toLocaleString()} meta={categoryLabel(event.category)} />)}</div>
+      <div className="list-stack">{events.length === 0 ? <VisualEmpty type="logs" text="No health memories yet." /> : events.slice(0, 4).map((event) => <RowItem key={event.id} title={event.title} detail={new Date(event.occurred_at).toLocaleString()} meta={categoryLabel(event.category)} />)}</div>
     </article>
   );
 }
@@ -668,7 +668,7 @@ function LatestReports({ records, onViewAll }: { records: HealthRecord[]; onView
   return (
     <article className="panel">
       <div className="section-head horizontal"><h2>Latest Reports</h2><button className="ghost-btn" onClick={onViewAll}>View All</button></div>
-      <div className="list-stack">{records.length === 0 ? <EmptyState text="No reports uploaded yet." /> : records.slice(0, 4).map((record) => <RowItem key={record.id} title={record.title} detail={record.details} meta={new Date(record.occurred_at).toLocaleDateString()} />)}</div>
+      <div className="list-stack">{records.length === 0 ? <VisualEmpty type="reports" text="No reports uploaded yet." /> : records.slice(0, 4).map((record) => <RowItem key={record.id} title={record.title} detail={record.details} meta={new Date(record.occurred_at).toLocaleDateString()} />)}</div>
     </article>
   );
 }
@@ -678,7 +678,7 @@ function HealthInsights({ records }: { records: HealthRecord[] }) {
     <article className="panel insight-card">
       <p className="eyebrow">Health Insights</p>
       <h2>This month</h2>
-      {records.length === 0 ? <p>Add health memories to generate insights.</p> : records.slice(0, 3).map((item) => <p key={item.id}>✓ {item.details}</p>)}
+      {records.length === 0 ? <VisualEmpty type="insights" text="Add health memories to generate insights." /> : records.slice(0, 3).map((item) => <p key={item.id}>✓ {item.details}</p>)}
       {records.length > 0 && <div className="score-ring"><strong>{Math.min(95, 60 + records.length * 8)}%</strong><span>Consistency Score</span></div>}
     </article>
   );
@@ -1180,7 +1180,7 @@ function AnalysisCard({ analysis }: { analysis: AiAnalysis }) {
 function RowItem({ title, detail, meta, status }: { title: string; detail: string; meta: string; status?: string }) {
   return (
     <div className="row-item">
-      <div className="row-icon">{title.slice(0, 1)}</div>
+      <div className="row-icon"><HealthIcon label={title} /></div>
       <div><strong>{title}</strong><p>{detail}</p></div>
       <span>{status || meta}</span>
     </div>
@@ -1189,6 +1189,28 @@ function RowItem({ title, detail, meta, status }: { title: string; detail: strin
 
 function EmptyState({ text }: { text: string }) {
   return <div className="notice">{text}</div>;
+}
+
+function VisualEmpty({ type, text }: { type: string; text: string }) {
+  return (
+    <div className={`visual-empty ${type}`}>
+      <HealthIcon label={type} />
+      <p>{text}</p>
+    </div>
+  );
+}
+
+function HealthIcon({ label }: { label: string }) {
+  const key = label.toLowerCase();
+  if (key.includes('sleep')) return <svg viewBox="0 0 24 24"><path d="M18 14.5A7 7 0 0 1 9.5 6a8 8 0 1 0 8.5 8.5Z" /></svg>;
+  if (key.includes('water')) return <svg viewBox="0 0 24 24"><path d="M12 3s6 6.3 6 11a6 6 0 0 1-12 0c0-4.7 6-11 6-11Z" /></svg>;
+  if (key.includes('step') || key.includes('activity') || key.includes('walk')) return <svg viewBox="0 0 24 24"><path d="M8 19c-1.6 0-2.7-1.2-2.2-2.8l1.4-4.4M16 19c1.6 0 2.7-1.2 2.2-2.8l-1.4-4.4M9 8.5l3-3 3 3M12 5.5V14" /></svg>;
+  if (key.includes('report') || key.includes('logs')) return <svg viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></svg>;
+  if (key.includes('reminder')) return <svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 2 7 2 9H4c0-2 2-2 2-9M10 21h4" /></svg>;
+  if (key.includes('insight') || key.includes('overview')) return <svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h17M8 16v-5M13 16V8M18 16v-9" /></svg>;
+  if (key.includes('food')) return <svg viewBox="0 0 24 24"><path d="M6 3v8M10 3v8M6 7h4M8 11v10M16 3v18M16 3c3 2 4 5 2 9" /></svg>;
+  if (key.includes('heart') || key.includes('health')) return <svg viewBox="0 0 24 24"><path d="M12 20S4 15 4 8.8C4 6 6 4 8.7 4c1.7 0 3 1 3.3 2 .3-1 1.6-2 3.3-2C18 4 20 6 20 8.8 20 15 12 20 12 20Z" /><path d="M6 12h3l1.5-3 3 6 1.5-3h3" /></svg>;
+  return <svg viewBox="0 0 24 24"><path d="M12 3l2.2 6.2L20 12l-5.8 2.8L12 21l-2.2-6.2L4 12l5.8-2.8z" /></svg>;
 }
 
 function fileToDataUrl(file: File): Promise<string> {
